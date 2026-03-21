@@ -1,0 +1,90 @@
+import { createContext, useContext, useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+
+const AuthContext = createContext(null)
+
+export function AuthProvider({ children }) {
+  const [user,    setUser]    = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchProfile = async (authUser) => {
+    if (!authUser) { setProfile(null); return null }
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', authUser.id)
+      .single()
+    setProfile(data || null)
+    return data
+  }
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+      fetchProfile(session?.user ?? null).finally(() => setLoading(false))
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      fetchProfile(session?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const signUp = async ({ email, password, full_name, role, phone }) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name, role, phone }
+      }
+    })
+    if (error) throw error
+    if (!data.user) throw new Error('Sign up failed — no user returned.')
+    // Profile is created automatically via database trigger
+    // Just fetch it after a short delay
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await fetchProfile(data.user)
+    return data
+  }
+
+  const signIn = async ({ email, password }) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+
+    if (data.user) {
+      // Auto-create profile for manually created Supabase users
+      const { data: existing } = await supabase
+        .from('profiles').select('id').eq('id', data.user.id).single()
+      if (!existing) {
+        await supabase.from('profiles').upsert({
+          id:        data.user.id,
+          full_name: data.user.email.split('@')[0],
+          role:      'shipper',
+        }, { onConflict: 'id' })
+      }
+      await fetchProfile(data.user)
+    }
+    return data
+  }
+
+  const signOut = async () => {
+    await supabase.auth.signOut()
+    setUser(null)
+    setProfile(null)
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
+  return ctx
+}
