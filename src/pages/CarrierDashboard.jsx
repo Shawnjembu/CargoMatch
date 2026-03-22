@@ -1,14 +1,14 @@
 import { useEffect, useState, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { calcMinRate, fmtBWP } from '../lib/rates'
 import CountUp from '../components/CountUp'
 import {
-  Truck, MapPin, DollarSign, Star, CheckCircle, Clock, Package,
-  TrendingUp, TrendingDown, ChevronRight, ArrowRight, Shield, Plus, Bell,
-  Navigation, X, Play, RefreshCw, AlertCircle, Search, Send,
+  Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
+  TrendingUp, ArrowRight, Shield, Plus, Bell,
+  Navigation, X, Play, RefreshCw, Search, Send,
   Gavel, Info, CreditCard, Lock
 } from 'lucide-react'
 
@@ -131,24 +131,68 @@ function LoadCard({ l, openBidModal, myBidIds, recommended, index = 0 }) {
 }
 
 const CITIES = {
-  'Gaborone':    { lat: -24.6282, lng: 25.9231 },
-  'Francistown': { lat: -21.1667, lng: 27.5167 },
-  'Maun':        { lat: -19.9833, lng: 23.4167 },
-  'Kasane':      { lat: -17.8000, lng: 25.1500 },
-  'Lobatse':     { lat: -25.2167, lng: 25.6833 },
-  'Palapye':     { lat: -22.5500, lng: 27.1333 },
-  'Serowe':      { lat: -22.3833, lng: 26.7167 },
+  'Gaborone':        { lat: -24.6282, lng: 25.9231 },
+  'Francistown':     { lat: -21.1667, lng: 27.5167 },
+  'Maun':            { lat: -19.9833, lng: 23.4167 },
+  'Kasane':          { lat: -17.8000, lng: 25.1500 },
+  'Lobatse':         { lat: -25.2167, lng: 25.6833 },
+  'Palapye':         { lat: -22.5500, lng: 27.1333 },
+  'Serowe':          { lat: -22.3833, lng: 26.7167 },
+  'Jwaneng':         { lat: -24.6025, lng: 24.7283 },
+  'Molepolole':      { lat: -24.4069, lng: 25.4950 },
+  'Kanye':           { lat: -24.9833, lng: 25.3500 },
+  'Mochudi':         { lat: -24.4000, lng: 26.1500 },
+  'Mahalapye':       { lat: -23.1000, lng: 26.8167 },
+  'Ramotswa':        { lat: -24.8700, lng: 25.8800 },
+  'Tlokweng':        { lat: -24.6000, lng: 26.0500 },
+  'Mogoditshane':    { lat: -24.5500, lng: 25.8400 },
+  'Tonota':          { lat: -21.4333, lng: 27.4667 },
+  'Selebi-Phikwe':   { lat: -22.0000, lng: 27.8167 },
+  'Phikwe':          { lat: -22.0000, lng: 27.8167 },
+  'Orapa':           { lat: -21.3000, lng: 25.3667 },
+  'Letlhakane':      { lat: -21.4167, lng: 25.5833 },
+  'Bobonong':        { lat: -21.9667, lng: 28.4167 },
+  'Tutume':          { lat: -20.4000, lng: 27.1333 },
+  'Nata':            { lat: -20.2167, lng: 26.1833 },
+  'Shakawe':         { lat: -18.3667, lng: 21.8500 },
+  'Ghanzi':          { lat: -21.6942, lng: 21.6422 },
+  'Tsabong':         { lat: -26.0333, lng: 22.4667 },
+  'Werda':           { lat: -25.6833, lng: 23.2667 },
+  'Kang':            { lat: -23.6833, lng: 22.8333 },
+  'Hukuntsi':        { lat: -23.9833, lng: 21.7500 },
+  'Good Hope':       { lat: -25.9500, lng: 25.9833 },
+  'Tlokweng':        { lat: -24.6000, lng: 26.0500 },
+  'Gabane':          { lat: -24.6000, lng: 25.7500 },
+  'Pilane':          { lat: -24.3300, lng: 25.9000 },
 }
+
+// Aliases to catch common variant spellings
+const ALIASES = {
+  'selebi phikwe': 'Selebi-Phikwe',
+  'selibe phikwe': 'Selebi-Phikwe',
+  'selibe-phikwe': 'Selebi-Phikwe',
+  'gcbd':          'Gaborone',
+  'gabs':          'Gaborone',
+}
+
 function getCity(loc) {
   if (!loc) return null
-  const key = Object.keys(CITIES).find(k => loc?.toLowerCase().includes(k.toLowerCase()))
+  const lower = loc.toLowerCase().trim()
+  // Check aliases first
+  for (const [alias, canonical] of Object.entries(ALIASES)) {
+    if (lower.includes(alias)) {
+      const c = CITIES[canonical]
+      return c ? { ...c, name: canonical } : null
+    }
+  }
+  // Match any known city name as a substring (case-insensitive)
+  const key = Object.keys(CITIES).find(k => lower.includes(k.toLowerCase()))
   return key ? { ...CITIES[key], name: key } : null
 }
-function lerp(a, b, t) { return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t } }
+
 
 export default function CarrierDashboard() {
   const { user, profile } = useAuth()
-  const navigate = useNavigate()
   const mapRef      = useRef(null)
   const leafletMap  = useRef(null)
   const markersRef  = useRef([])
@@ -196,11 +240,20 @@ export default function CarrierDashboard() {
     if (!user) return
     fetchData()
 
-    // Realtime: notify carrier of new loads
-    const channel = supabase.channel('carrier-new-loads')
+    // Realtime: notify carrier of new loads + pickup location updates from shipper
+    const channel = supabase.channel('carrier-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'loads' }, (payload) => {
         setNewLoadCount(n => n + 1)
         setAvailableLoads(prev => [payload.new, ...prev])
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'shipments' }, (payload) => {
+        const p = payload.new
+        if (p.pickup_lat) {
+          setMyTrips(prev => prev.map(t => t.id === p.id
+            ? { ...t, pickup_lat: p.pickup_lat, pickup_lng: p.pickup_lng, pickup_shared_at: p.pickup_shared_at }
+            : t
+          ))
+        }
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -227,6 +280,7 @@ export default function CarrierDashboard() {
           supabase.from('trucks').select('*').eq('carrier_id', carrier.id),
           supabase.from('shipments').select(`
             id, reference, status, price, progress_pct, shipper_id, carrier_id,
+            pickup_lat, pickup_lng, pickup_shared_at,
             created_at, delivered_at,
             loads(from_location, to_location, cargo_type, weight_kg),
             reviews(id, reviewer_id),
@@ -337,68 +391,62 @@ export default function CarrierDashboard() {
   }
 
   const initMap = () => {
-    if (leafletMap.current) return
-    if (!mapRef.current) return
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link')
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      document.head.appendChild(link)
-    }
-    const initLeaflet = () => {
-      if (!mapRef.current) return
-      const L = window.L
-      const map = L.map(mapRef.current, { zoomControl: true }).setView([-23.0, 25.5], 6)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors', maxZoom: 18,
-      }).addTo(map)
+    if (leafletMap.current || !mapRef.current) return
+    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
+      if (!mapRef.current || leafletMap.current) return
+      const map = new gmaps.Map(mapRef.current, {
+        center: { lat: -23.0, lng: 25.5 },
+        zoom: 6,
+        mapTypeId: 'roadmap',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+      })
       Object.entries(CITIES).forEach(([name, c]) => {
-        L.circleMarker([c.lat, c.lng], { radius: 5, color: '#259658', fillColor: '#fff', fillOpacity: 1, weight: 2 })
-          .bindTooltip(name).addTo(map)
+        const m = new gmaps.Marker({
+          position: c,
+          map,
+          icon: { path: gmaps.SymbolPath.CIRCLE, scale: 5, fillColor: 'white', fillOpacity: 1, strokeColor: '#d6d3d1', strokeWeight: 2 },
+          title: name,
+        })
+        const info = new gmaps.InfoWindow({ content: `<b>${name}</b>` })
+        m.addListener('click', () => info.open(map, m))
       })
       leafletMap.current = map
       setMapReady(true)
-    }
-    if (window.L) {
-      initLeaflet()
-    } else {
-      const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-      script.onload = initLeaflet
-      document.head.appendChild(script)
-    }
+    }).catch(console.error)
   }
 
-  // Draw load routes on map when tab = map
+  // Draw load routes on map
   useEffect(() => {
     if (!mapReady || !leafletMap.current) return
-    const L = window.L
+    const gmaps = window.google.maps
     const map = leafletMap.current
-    markersRef.current.forEach(m => { try { map.removeLayer(m) } catch(e){} })
+
+    markersRef.current.forEach(m => { try { m.setMap(null) } catch(e){} })
     markersRef.current = []
 
-    availableLoads.forEach((load, i) => {
-      const from = getCity(load.from_location)
-      const to   = getCity(load.to_location)
-      if (!from || !to) return
+    const colors = ['#259658','#3b82f6','#f59e0b','#8b5cf6','#ef4444']
+    ;(async () => {
+      const { drawRoadRoute } = await import('../lib/googleMaps')
+      for (const [i, load] of availableLoads.entries()) {
+        const from = getCity(load.from_location)
+        const to   = getCity(load.to_location)
+        if (!from || !to) continue
+        const color = colors[i % colors.length]
 
-      const colors = ['#259658','#3b82f6','#f59e0b','#8b5cf6','#ef4444']
-      const color = colors[i % colors.length]
+        const route = await drawRoadRoute(gmaps, map, from, to, { strokeColor: color, strokeWeight: 3 })
 
-      const line = L.polyline([[from.lat, from.lng],[to.lat, to.lng]], { color, weight: 3, opacity: 0.7 }).addTo(map)
-      const icon = L.divIcon({
-        html: `<div style="background:${color};color:white;border-radius:8px;padding:3px 6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2)">P ${(load.price_estimate||0).toLocaleString()}</div>`,
-        className: '', iconAnchor: [30, 12],
-      })
-      const mid = lerp(from, to, 0.5)
-      const marker = L.marker([mid.lat, mid.lng], { icon })
-        .bindPopup(`<b>${load.from_location} → ${load.to_location}</b><br>${load.cargo_type} · ${load.weight_kg}kg<br><b style="color:${color}">P ${(load.price_estimate||0).toLocaleString()}</b>`)
-        .addTo(map)
-
-      const fromDot = L.circleMarker([from.lat, from.lng], { radius: 7, color, fillColor: color, fillOpacity: 1, weight: 2 }).addTo(map)
-      const toDot   = L.circleMarker([to.lat,   to.lng],   { radius: 7, color: '#6b7280', fillColor: '#6b7280', fillOpacity: 1, weight: 2 }).addTo(map)
-      markersRef.current.push(line, marker, fromDot, toDot)
-    })
+        const info = new gmaps.InfoWindow({
+          content: `<b>${load.from_location} → ${load.to_location}</b><br>${load.cargo_type} · ${load.weight_kg}kg<br><b style="color:${color}">P ${(load.price_estimate||0).toLocaleString()}</b>`,
+        })
+        const fromDot = new gmaps.Marker({ position: from, map, icon: { path: gmaps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 }, title: load.from_location })
+        const toDot   = new gmaps.Marker({ position: to,   map, icon: { path: gmaps.SymbolPath.CIRCLE, scale: 6, fillColor: '#6b7280', fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 }, title: load.to_location })
+        fromDot.addListener('click', () => info.open(map, fromDot))
+        markersRef.current.push(route, fromDot, toDot)
+      }
+    })()
   }, [mapReady, availableLoads, tab])
 
   const addTruck = async () => {
@@ -809,10 +857,24 @@ export default function CarrierDashboard() {
                           <p className="font-display font-700 text-forest-600">P {(t.price || 0).toLocaleString()}</p>
                           {/* Status update buttons */}
                           {t.status === 'confirmed' && (
-                            <button onClick={() => updateShipmentStatus(t.id, 'picked_up')}
-                              className="mt-2 flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
-                              <Play size={10} /> Mark Picked Up
-                            </button>
+                            <div className="mt-2 flex flex-col gap-1.5">
+                              {t.pickup_lat ? (
+                                <a
+                                  href={`https://www.google.com/maps/dir/?api=1&destination=${t.pickup_lat},${t.pickup_lng}`}
+                                  target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
+                                  <Navigation size={10} className="animate-pulse" /> Navigate to Pickup
+                                </a>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs text-stone-400 italic">
+                                  <MapPin size={10} /> Waiting for shipper location…
+                                </span>
+                              )}
+                              <button onClick={() => updateShipmentStatus(t.id, 'picked_up')}
+                                className="flex items-center gap-1 bg-forest-500 hover:bg-forest-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
+                                <Play size={10} /> Mark Picked Up
+                              </button>
+                            </div>
                           )}
                           {t.status === 'picked_up' && (
                             <button onClick={() => updateShipmentStatus(t.id, 'in_transit')}

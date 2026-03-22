@@ -2,26 +2,58 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
-import { Truck, MapPin, Clock, Package, ArrowRight, MessageSquare, CheckCircle, ChevronLeft, Navigation, AlertCircle } from 'lucide-react'
+import { ArrowRight, MessageSquare, CheckCircle, ChevronLeft, Navigation, AlertCircle } from 'lucide-react'
 
 const CITIES = {
-  'Gaborone':    { lat: -24.6282, lng: 25.9231 },
-  'Francistown': { lat: -21.1667, lng: 27.5167 },
-  'Maun':        { lat: -19.9833, lng: 23.4167 },
-  'Kasane':      { lat: -17.8000, lng: 25.1500 },
-  'Lobatse':     { lat: -25.2167, lng: 25.6833 },
-  'Palapye':     { lat: -22.5500, lng: 27.1333 },
-  'Serowe':      { lat: -22.3833, lng: 26.7167 },
+  'Gaborone':        { lat: -24.6282, lng: 25.9231 },
+  'Francistown':     { lat: -21.1667, lng: 27.5167 },
+  'Maun':            { lat: -19.9833, lng: 23.4167 },
+  'Kasane':          { lat: -17.8000, lng: 25.1500 },
+  'Lobatse':         { lat: -25.2167, lng: 25.6833 },
+  'Palapye':         { lat: -22.5500, lng: 27.1333 },
+  'Serowe':          { lat: -22.3833, lng: 26.7167 },
+  'Jwaneng':         { lat: -24.6025, lng: 24.7283 },
+  'Molepolole':      { lat: -24.4069, lng: 25.4950 },
+  'Kanye':           { lat: -24.9833, lng: 25.3500 },
+  'Mochudi':         { lat: -24.4000, lng: 26.1500 },
+  'Mahalapye':       { lat: -23.1000, lng: 26.8167 },
+  'Ramotswa':        { lat: -24.8700, lng: 25.8800 },
+  'Tlokweng':        { lat: -24.6000, lng: 26.0500 },
+  'Mogoditshane':    { lat: -24.5500, lng: 25.8400 },
+  'Tonota':          { lat: -21.4333, lng: 27.4667 },
+  'Selebi-Phikwe':   { lat: -22.0000, lng: 27.8167 },
+  'Phikwe':          { lat: -22.0000, lng: 27.8167 },
+  'Orapa':           { lat: -21.3000, lng: 25.3667 },
+  'Letlhakane':      { lat: -21.4167, lng: 25.5833 },
+  'Bobonong':        { lat: -21.9667, lng: 28.4167 },
+  'Tutume':          { lat: -20.4000, lng: 27.1333 },
+  'Nata':            { lat: -20.2167, lng: 26.1833 },
+  'Shakawe':         { lat: -18.3667, lng: 21.8500 },
+  'Ghanzi':          { lat: -21.6942, lng: 21.6422 },
+  'Tsabong':         { lat: -26.0333, lng: 22.4667 },
+  'Kang':            { lat: -23.6833, lng: 22.8333 },
+  'Hukuntsi':        { lat: -23.9833, lng: 21.7500 },
+  'Gabane':          { lat: -24.6000, lng: 25.7500 },
+  'Pilane':          { lat: -24.3300, lng: 25.9000 },
+}
+const ALIASES = {
+  'selebi phikwe': 'Selebi-Phikwe',
+  'selibe phikwe': 'Selebi-Phikwe',
+  'selibe-phikwe': 'Selebi-Phikwe',
+  'gabs':          'Gaborone',
+}
+function getCity(loc) {
+  if (!loc) return null
+  const lower = loc.toLowerCase().trim()
+  for (const [alias, canonical] of Object.entries(ALIASES)) {
+    if (lower.includes(alias)) { const c = CITIES[canonical]; return c ? { ...c, name: canonical } : null }
+  }
+  const key = Object.keys(CITIES).find(k => lower.includes(k.toLowerCase()))
+  return key ? { ...CITIES[key], name: key } : null
 }
 
 function lerp(a, b, t) {
   return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t }
-}
-
-function getCity(loc) {
-  if (!loc) return null
-  const key = Object.keys(CITIES).find(k => loc.toLowerCase().includes(k.toLowerCase()))
-  return key ? CITIES[key] : null
 }
 
 export default function TrackShipment() {
@@ -106,43 +138,63 @@ export default function TrackShipment() {
   const truckPos  = liveCoord || lerp(fromCoord, toCoord, (liveProgress || 0) / 100)
   const isLiveGPS = !!liveCoord
 
-  // Init Leaflet map
+  // Init Google Maps
   useEffect(() => {
     if (leafletMap.current || loading) return
+    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
+      if (!mapRef.current || leafletMap.current) return
+      const map = new gmaps.Map(mapRef.current, {
+        center: { lat: truckPos.lat, lng: truckPos.lng },
+        zoom: 7,
+        mapTypeId: 'roadmap',
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+      })
 
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link')
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      document.head.appendChild(link)
-    }
+      // Draw road-following route via Directions API
+      import('../lib/googleMaps').then(({ drawRoadRoute }) =>
+        drawRoadRoute(gmaps, map, fromCoord, toCoord, { strokeColor: '#259658', strokeWeight: 4 })
+      )
 
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-    script.onload = () => {
-      const L = window.L
-      const map = L.map(mapRef.current, { zoomControl: true, scrollWheelZoom: true })
-        .setView([truckPos.lat, truckPos.lng], 7)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors', maxZoom: 18,
-      }).addTo(map)
-      L.polyline([[fromCoord.lat, fromCoord.lng],[toCoord.lat, toCoord.lng]], { color: '#259658', weight: 3, dashArray: '8 6', opacity: 0.7 }).addTo(map)
-      const dot = (color) => L.divIcon({ html: `<div style="width:12px;height:12px;background:${color};border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`, className: '', iconAnchor: [6,6] })
-      L.marker([fromCoord.lat, fromCoord.lng], { icon: dot('#259658') }).bindPopup(`<b>${fromLoc}</b><br>Pickup`).addTo(map)
-      L.marker([toCoord.lat,   toCoord.lng],   { icon: dot('#6b7280') }).bindPopup(`<b>${toLoc}</b><br>Destination`).addTo(map)
-      const truckIcon = L.divIcon({ html: `<div style="background:#259658;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(37,150,88,0.4);border:2px solid white;font-size:14px;">🚛</div>`, className: '', iconAnchor: [16,16] })
-      truckMarker.current = L.marker([truckPos.lat, truckPos.lng], { icon: truckIcon }).bindPopup(`<b>${shipment?.carriers?.company_name || 'Carrier'}</b><br>${shipment?.status || ''}`).addTo(map)
+      const dotIcon = (color) => ({
+        path: gmaps.SymbolPath.CIRCLE,
+        scale: 7,
+        fillColor: color,
+        fillOpacity: 1,
+        strokeColor: 'white',
+        strokeWeight: 2.5,
+      })
+      new gmaps.Marker({ position: fromCoord, map, icon: dotIcon('#259658'), title: fromLoc })
+        .addListener('click', () => new gmaps.InfoWindow({ content: `<b>${fromLoc}</b><br>Pickup` }).open(map))
+      new gmaps.Marker({ position: toCoord, map, icon: dotIcon('#6b7280'), title: toLoc })
+        .addListener('click', () => new gmaps.InfoWindow({ content: `<b>${toLoc}</b><br>Destination` }).open(map))
+
+      const truckEl = document.createElement('div')
+      truckEl.innerHTML = '🚛'
+      truckEl.style.cssText = 'background:#259658;color:white;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(37,150,88,0.45);border:2px solid white;font-size:15px;cursor:pointer;'
+      truckMarker.current = new gmaps.Marker({
+        position: truckPos,
+        map,
+        icon: { url: `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36'><circle cx='18' cy='18' r='16' fill='%23259658' stroke='white' stroke-width='2.5'/><text x='18' y='23' font-size='14' text-anchor='middle'>🚛</text></svg>`, anchor: new gmaps.Point(18, 18) },
+        title: shipment?.carriers?.company_name || 'Carrier',
+      })
+      const infoWin = new gmaps.InfoWindow({ content: `<b>${shipment?.carriers?.company_name || 'Carrier'}</b><br>${shipment?.status || ''}` })
+      truckMarker.current.addListener('click', () => infoWin.open(map, truckMarker.current))
+
       leafletMap.current = map
       setMapReady(true)
-    }
-    document.head.appendChild(script)
-    return () => { if (leafletMap.current) { leafletMap.current.remove(); leafletMap.current = null } }
+    }).catch(console.error)
+    return () => { leafletMap.current = null }
   }, [loading])
 
   // Move marker when real GPS coord arrives
   useEffect(() => {
     if (!mapReady || !liveCoord) return
-    truckMarker.current?.setLatLng([liveCoord.lat, liveCoord.lng])
+    truckMarker.current?.setPosition(liveCoord)
   }, [liveCoord, mapReady])
 
   // Fallback: animate by interpolation when no real GPS
@@ -152,7 +204,7 @@ export default function TrackShipment() {
       setLiveProgress(p => {
         const next = Math.min(p + 0.15, 100)
         const pos = lerp(fromCoord, toCoord, next / 100)
-        truckMarker.current?.setLatLng([pos.lat, pos.lng])
+        truckMarker.current?.setPosition(pos)
         return next
       })
     }, 2000)

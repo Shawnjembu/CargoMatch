@@ -3,23 +3,53 @@ import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Truck, Package, MapPin, ArrowRight, RefreshCw } from 'lucide-react'
+import { Truck, MapPin, ArrowRight, RefreshCw } from 'lucide-react'
 
 const CITIES = {
-  'Gaborone':    { lat: -24.6282, lng: 25.9231 },
-  'Francistown': { lat: -21.1667, lng: 27.5167 },
-  'Maun':        { lat: -19.9833, lng: 23.4167 },
-  'Kasane':      { lat: -17.8000, lng: 25.1500 },
-  'Lobatse':     { lat: -25.2167, lng: 25.6833 },
-  'Palapye':     { lat: -22.5500, lng: 27.1333 },
-  'Serowe':      { lat: -22.3833, lng: 26.7167 },
-  'Jwaneng':     { lat: -24.6025, lng: 24.7283 },
-  'Molepolole':  { lat: -24.4069, lng: 25.4950 },
+  'Gaborone':        { lat: -24.6282, lng: 25.9231 },
+  'Francistown':     { lat: -21.1667, lng: 27.5167 },
+  'Maun':            { lat: -19.9833, lng: 23.4167 },
+  'Kasane':          { lat: -17.8000, lng: 25.1500 },
+  'Lobatse':         { lat: -25.2167, lng: 25.6833 },
+  'Palapye':         { lat: -22.5500, lng: 27.1333 },
+  'Serowe':          { lat: -22.3833, lng: 26.7167 },
+  'Jwaneng':         { lat: -24.6025, lng: 24.7283 },
+  'Molepolole':      { lat: -24.4069, lng: 25.4950 },
+  'Kanye':           { lat: -24.9833, lng: 25.3500 },
+  'Mochudi':         { lat: -24.4000, lng: 26.1500 },
+  'Mahalapye':       { lat: -23.1000, lng: 26.8167 },
+  'Ramotswa':        { lat: -24.8700, lng: 25.8800 },
+  'Tlokweng':        { lat: -24.6000, lng: 26.0500 },
+  'Mogoditshane':    { lat: -24.5500, lng: 25.8400 },
+  'Tonota':          { lat: -21.4333, lng: 27.4667 },
+  'Selebi-Phikwe':   { lat: -22.0000, lng: 27.8167 },
+  'Phikwe':          { lat: -22.0000, lng: 27.8167 },
+  'Orapa':           { lat: -21.3000, lng: 25.3667 },
+  'Letlhakane':      { lat: -21.4167, lng: 25.5833 },
+  'Bobonong':        { lat: -21.9667, lng: 28.4167 },
+  'Tutume':          { lat: -20.4000, lng: 27.1333 },
+  'Nata':            { lat: -20.2167, lng: 26.1833 },
+  'Shakawe':         { lat: -18.3667, lng: 21.8500 },
+  'Ghanzi':          { lat: -21.6942, lng: 21.6422 },
+  'Tsabong':         { lat: -26.0333, lng: 22.4667 },
+  'Kang':            { lat: -23.6833, lng: 22.8333 },
+  'Hukuntsi':        { lat: -23.9833, lng: 21.7500 },
+  'Gabane':          { lat: -24.6000, lng: 25.7500 },
+  'Pilane':          { lat: -24.3300, lng: 25.9000 },
 }
-
+const ALIASES = {
+  'selebi phikwe': 'Selebi-Phikwe',
+  'selibe phikwe': 'Selebi-Phikwe',
+  'selibe-phikwe': 'Selebi-Phikwe',
+  'gabs':          'Gaborone',
+}
 function getCity(loc) {
   if (!loc) return null
-  const key = Object.keys(CITIES).find(k => loc.toLowerCase().includes(k.toLowerCase()))
+  const lower = loc.toLowerCase().trim()
+  for (const [alias, canonical] of Object.entries(ALIASES)) {
+    if (lower.includes(alias)) { const c = CITIES[canonical]; return c ? { ...c, name: canonical } : null }
+  }
+  const key = Object.keys(CITIES).find(k => lower.includes(k.toLowerCase()))
   return key ? { ...CITIES[key], name: key } : null
 }
 
@@ -59,96 +89,75 @@ export default function MapView() {
   }
 
   const initMap = () => {
-    if (leafletMap.current) return
-
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link')
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      document.head.appendChild(link)
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-    script.onload = () => {
-      const L = window.L
-      const map = L.map(mapRef.current, { zoomControl: true, scrollWheelZoom: true })
-        .setView([-23.0, 25.5], 6)
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors', maxZoom: 18,
-      }).addTo(map)
-
-      // Add city markers
-      Object.entries(CITIES).forEach(([name, coord]) => {
-        const icon = L.divIcon({
-          html: `<div style="background:white;border:2px solid #d6d3d1;border-radius:50%;width:10px;height:10px;"></div>`,
-          className: '', iconAnchor: [5, 5],
-        })
-        L.marker([coord.lat, coord.lng], { icon })
-          .bindTooltip(name, { permanent: false, direction: 'top', className: 'leaflet-tooltip-city' })
-          .addTo(map)
+    if (leafletMap.current || !mapRef.current) return
+    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
+      if (!mapRef.current || leafletMap.current) return
+      const map = new gmaps.Map(mapRef.current, {
+        center: { lat: -23.0, lng: 25.5 },
+        zoom: 6,
+        mapTypeId: 'roadmap',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
       })
-
+      Object.entries(CITIES).forEach(([name, coord]) => {
+        const m = new gmaps.Marker({
+          position: coord, map,
+          icon: { path: gmaps.SymbolPath.CIRCLE, scale: 5, fillColor: 'white', fillOpacity: 1, strokeColor: '#d6d3d1', strokeWeight: 2 },
+          title: name,
+        })
+        const info = new gmaps.InfoWindow({ content: `<b>${name}</b>` })
+        m.addListener('mouseover', () => info.open(map, m))
+        m.addListener('mouseout',  () => info.close())
+      })
       leafletMap.current = map
       setMapReady(true)
-    }
-    document.head.appendChild(script)
-
-    return () => { if (leafletMap.current) { leafletMap.current.remove(); leafletMap.current = null } }
+    }).catch(console.error)
   }
 
   // Render shipment markers when map + data are ready
   useEffect(() => {
     if (!mapReady || !leafletMap.current) return
-    const L = window.L
+    const gmaps = window.google.maps
     const map = leafletMap.current
 
-    // Clear old markers
-    markersRef.current.forEach(m => map.removeLayer(m))
+    markersRef.current.forEach(m => { try { m.setMap(null) } catch(e){} })
     markersRef.current = []
 
-    shipments.forEach(s => {
-      const from = getCity(s.loads?.from_location)
-      const to   = getCity(s.loads?.to_location)
-      if (!from || !to) return
+    ;(async () => {
+      const { drawRoadRoute } = await import('../lib/googleMaps')
+      for (const s of shipments) {
+        const from = getCity(s.loads?.from_location)
+        const to   = getCity(s.loads?.to_location)
+        if (!from || !to) continue
 
-      const progress = (s.progress_pct || 20) / 100
-      const pos = lerp(from, to, progress)
+        const progress = (s.progress_pct || 20) / 100
+        const pos = lerp(from, to, progress)
 
-      // Route line
-      const line = L.polyline([[from.lat, from.lng],[to.lat, to.lng]], {
-        color: '#259658', weight: 2, dashArray: '6 4', opacity: 0.5
-      }).addTo(map)
+        const route = await drawRoadRoute(gmaps, map, from, to, { strokeColor: '#259658', strokeWeight: 2 })
 
-      // From pin
-      const fromIcon = L.divIcon({
-        html: `<div style="background:#259658;border-radius:50%;width:10px;height:10px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.3)"></div>`,
-        className: '', iconAnchor: [5, 5],
-      })
-      const fromMarker = L.marker([from.lat, from.lng], { icon: fromIcon })
-        .bindPopup(`<b>${from.name}</b><br>Pickup`)
-        .addTo(map)
+        const fromPin = new gmaps.Marker({
+          position: from, map,
+          icon: { path: gmaps.SymbolPath.CIRCLE, scale: 5, fillColor: '#259658', fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 },
+          title: from.name,
+        })
+        fromPin.addListener('click', () => new gmaps.InfoWindow({ content: `<b>${from.name}</b><br>Pickup` }).open(map, fromPin))
 
-      // Truck marker
-      const truckIcon = L.divIcon({
-        html: `<div style="background:#259658;color:white;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(37,150,88,0.5);border:2px solid white;font-size:13px;cursor:pointer;">🚛</div>`,
-        className: '', iconAnchor: [15, 15],
-      })
-      const truckMarker = L.marker([pos.lat, pos.lng], { icon: truckIcon })
-        .bindPopup(`
-          <div style="font-family:sans-serif;min-width:160px">
-            <b style="color:#259658">${s.reference || s.id.slice(0,8)}</b><br>
-            <span style="color:#666">${s.carriers?.company_name || 'Carrier'}</span><br>
-            <span style="font-size:11px">${s.loads?.from_location} → ${s.loads?.to_location}</span><br>
-            <span style="font-size:11px;color:#259658">● In Transit · ${Math.round(s.progress_pct || 20)}%</span>
-          </div>
-        `)
-        .addTo(map)
-        .on('click', () => setSelected(s))
+        const truckSvg = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='%23259658' stroke='white' stroke-width='2.5'/><text x='16' y='21' font-size='13' text-anchor='middle'>🚛</text></svg>`
+        const truckPin = new gmaps.Marker({
+          position: pos, map,
+          icon: { url: truckSvg, scaledSize: new gmaps.Size(32, 32), anchor: new gmaps.Point(16, 16) },
+          title: s.carriers?.company_name || 'Carrier',
+        })
+        const info = new gmaps.InfoWindow({
+          content: `<div style="font-family:sans-serif;min-width:160px"><b style="color:#259658">${s.reference || s.id.slice(0,8)}</b><br><span style="color:#666">${s.carriers?.company_name || 'Carrier'}</span><br><span style="font-size:11px">${s.loads?.from_location} → ${s.loads?.to_location}</span><br><span style="font-size:11px;color:#259658">● In Transit · ${Math.round(s.progress_pct || 20)}%</span></div>`,
+        })
+        truckPin.addListener('click', () => { info.open(map, truckPin); setSelected(s) })
 
-      markersRef.current.push(line, fromMarker, truckMarker)
-    })
+        markersRef.current.push(route, fromPin, truckPin)
+      }
+    })()
   }, [mapReady, shipments])
 
   return (

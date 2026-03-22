@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -8,9 +8,9 @@ import { fmtBWP } from '../lib/rates'
 import { TRIAL_MODE } from '../lib/config'
 import CountUp from '../components/CountUp'
 import {
-  Package, MapPin, Clock, CheckCircle, Truck, Plus, TrendingDown,
-  Star, AlertCircle, ArrowRight, ChevronRight, LogIn, Bell,
-  MessageSquare, Navigation, RefreshCw, X, Image, Send, Gavel, CreditCard
+  Package, MapPin, CheckCircle, Truck, Plus, TrendingDown,
+  Star, AlertCircle, ArrowRight, LogIn, Bell,
+  MessageSquare, Navigation, RefreshCw, X, Send, Gavel, CreditCard
 } from 'lucide-react'
 
 const CITIES = {
@@ -48,7 +48,6 @@ function StatusIcon({ status }) {
 
 export default function ShipperDashboard() {
   const { user, profile, loading: authLoading } = useAuth()
-  const navigate = useNavigate()
   const mapRef      = useRef(null)
   const leafletMap  = useRef(null)
   const markersRef  = useRef([])
@@ -72,6 +71,8 @@ export default function ShipperDashboard() {
   const [loadBidCounts,setLoadBidCounts]= useState({})    // load_id -> count
   const [acceptingBid, setAcceptingBid] = useState(null)  // bid id being processed
   const [payModal,     setPayModal]     = useState(null)  // { load, bid } — confirmation step
+  const pickupWatcher = useRef(null)
+  const [sharingPickup, setSharingPickup] = useState(null) // shipment_id whose pickup location is being broadcast
 
   useEffect(() => {
     if (!user) return
@@ -99,7 +100,7 @@ export default function ShipperDashboard() {
     if (!user) return
     setLoading(true)
     const [{ data: sData }, { data: lData }, { data: nData }, { data: mData }] = await Promise.all([
-      supabase.from('shipments').select('id, reference, status, price, progress_pct, shipper_id, carrier_id, created_at, loads(cargo_type, weight_kg, from_location, to_location, image_url), carriers(company_name, user_id), reviews(id, reviewer_id)')
+      supabase.from('shipments').select('id, reference, status, price, progress_pct, shipper_id, carrier_id, pickup_lat, pickup_lng, pickup_shared_at, created_at, loads(cargo_type, weight_kg, from_location, to_location, image_url), carriers(company_name, user_id), reviews(id, reviewer_id)')
         .eq('shipper_id', user.id).order('created_at', { ascending: false }),
       supabase.from('loads').select('*').eq('shipper_id', user.id).eq('status', 'pending').order('created_at', { ascending: false }),
       supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
@@ -131,73 +132,68 @@ export default function ShipperDashboard() {
   }
 
   const initMap = () => {
-    if (leafletMap.current) return
-    if (!mapRef.current) return
-    const doInit = () => {
-      if (!mapRef.current) return
-      const L = window.L
-      const map = L.map(mapRef.current, { zoomControl: true }).setView([-23.0, 25.5], 6)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors', maxZoom: 18,
-      }).addTo(map)
+    if (leafletMap.current || !mapRef.current) return
+    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
+      if (!mapRef.current || leafletMap.current) return
+      const map = new gmaps.Map(mapRef.current, {
+        center: { lat: -23.0, lng: 25.5 },
+        zoom: 6,
+        mapTypeId: 'roadmap',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+      })
       Object.entries(CITIES).forEach(([name, c]) => {
-        L.circleMarker([c.lat, c.lng], { radius: 5, color: '#259658', fillColor: '#fff', fillOpacity: 1, weight: 2 })
-          .bindTooltip(name).addTo(map)
+        const m = new gmaps.Marker({ position: c, map, icon: { path: gmaps.SymbolPath.CIRCLE, scale: 5, fillColor: 'white', fillOpacity: 1, strokeColor: '#d6d3d1', strokeWeight: 2 }, title: name })
+        const info = new gmaps.InfoWindow({ content: `<b>${name}</b>` })
+        m.addListener('mouseover', () => info.open(map, m))
+        m.addListener('mouseout',  () => info.close())
       })
       leafletMap.current = map
       setMapReady(true)
-    }
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link')
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      document.head.appendChild(link)
-    }
-    if (window.L) {
-      doInit()
-    } else {
-      const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-      script.onload = doInit
-      document.head.appendChild(script)
-    }
+    }).catch(console.error)
   }
 
   useEffect(() => {
     if (!mapReady || !leafletMap.current || tab !== 'map') return
-    const L = window.L
-    const map = leafletMap.current
-    markersRef.current.forEach(m => { try { map.removeLayer(m) } catch(e){} })
+    const gmaps = window.google.maps
+    const map   = leafletMap.current
+
+    // Clear old overlays
+    markersRef.current.forEach(m => { try { m.setMap(null) } catch(e){} })
     markersRef.current = []
 
-    // Draw pending loads
-    loads.forEach((l, i) => {
-      const from = getCity(l.from_location)
-      const to   = getCity(l.to_location)
-      if (!from || !to) return
-      const line = L.polyline([[from.lat, from.lng],[to.lat, to.lng]], { color: '#f59e0b', weight: 2, dashArray: '6 4', opacity: 0.7 }).addTo(map)
-      const dot  = L.circleMarker([from.lat, from.lng], { radius: 6, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1, weight: 2 })
-        .bindPopup(`<b>Pending: ${l.from_location} → ${l.to_location}</b><br>${l.cargo_type} · ${l.weight_kg}kg`).addTo(map)
-      markersRef.current.push(line, dot)
-    })
+    ;(async () => {
+      const { drawRoadRoute } = await import('../lib/googleMaps')
 
-    // Draw active shipments with truck marker
-    shipments.filter(s => ['in_transit','picked_up','confirmed'].includes(s.status)).forEach(s => {
-      const from = getCity(s.loads?.from_location)
-      const to   = getCity(s.loads?.to_location)
-      if (!from || !to) return
-      const progress = (s.progress_pct || 10) / 100
-      const pos = lerp(from, to, progress)
-      const line = L.polyline([[from.lat, from.lng],[to.lat, to.lng]], { color: '#259658', weight: 3, opacity: 0.6 }).addTo(map)
-      const truckIcon = L.divIcon({
-        html: `<div style="background:#259658;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(37,150,88,0.5);border:2px solid white;font-size:12px;">🚛</div>`,
-        className: '', iconAnchor: [14,14],
-      })
-      const marker = L.marker([pos.lat, pos.lng], { icon: truckIcon })
-        .bindPopup(`<b>${s.reference}</b><br>${s.carriers?.company_name}<br>${s.loads?.from_location} → ${s.loads?.to_location}`)
-        .addTo(map)
-      markersRef.current.push(line, marker)
-    })
+      // Pending loads — amber road route
+      for (const l of loads) {
+        const from = getCity(l.from_location)
+        const to   = getCity(l.to_location)
+        if (!from || !to) continue
+        const route = await drawRoadRoute(gmaps, map, from, to, { strokeColor: '#f59e0b', strokeWeight: 3 })
+        const dot = new gmaps.Marker({ position: from, map, icon: { path: gmaps.SymbolPath.CIRCLE, scale: 7, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: 'white', strokeWeight: 2 }, title: l.from_location })
+        const info = new gmaps.InfoWindow({ content: `<b>Pending: ${l.from_location} → ${l.to_location}</b><br>${l.cargo_type} · ${l.weight_kg}kg` })
+        dot.addListener('click', () => info.open(map, dot))
+        markersRef.current.push(route, dot)
+      }
+
+      // Active shipments — green road route + truck marker
+      for (const s of shipments.filter(s => ['in_transit','picked_up','confirmed'].includes(s.status))) {
+        const from = getCity(s.loads?.from_location)
+        const to   = getCity(s.loads?.to_location)
+        if (!from || !to) continue
+        const progress = (s.progress_pct || 10) / 100
+        const pos = lerp(from, to, progress)
+        const route = await drawRoadRoute(gmaps, map, from, to, { strokeColor: '#259658', strokeWeight: 3 })
+        const truckSvg = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30'><circle cx='15' cy='15' r='13' fill='%23259658' stroke='white' stroke-width='2.5'/><text x='15' y='20' font-size='12' text-anchor='middle'>🚛</text></svg>`
+        const marker = new gmaps.Marker({ position: pos, map, icon: { url: truckSvg, scaledSize: new gmaps.Size(30,30), anchor: new gmaps.Point(15,15) }, title: s.carriers?.company_name })
+        const info = new gmaps.InfoWindow({ content: `<b>${s.reference}</b><br>${s.carriers?.company_name || ''}<br>${s.loads?.from_location} → ${s.loads?.to_location}` })
+        marker.addListener('click', () => info.open(map, marker))
+        markersRef.current.push(route, marker)
+      }
+    })()
   }, [mapReady, tab, shipments, loads])
 
   const confirmDelivery = async (shipmentId) => {
@@ -257,13 +253,41 @@ export default function ShipperDashboard() {
   }
 
   const openBidsModal = async (load) => {
-    const { data: bids } = await supabase
+    // Step 1: flat fetch — no FK joins that might silently fail
+    const { data: bids, error } = await supabase
       .from('load_bids')
-      .select('*, carriers(company_name, rating, verified, id), profiles:carrier_user_id(full_name)')
+      .select('id, load_id, carrier_id, carrier_user_id, price, note, status, created_at')
       .eq('load_id', load.id)
       .eq('status', 'pending')
       .order('price', { ascending: true })
-    setBidsModal({ load, bids: bids || [] })
+
+    if (error) { console.error('Bids fetch error:', error); setBidsModal({ load, bids: [] }); return }
+    if (!bids?.length) { setBidsModal({ load, bids: [] }); return }
+
+    // Step 2: enrich with carrier + profile data separately
+    const carrierIds = [...new Set(bids.map(b => b.carrier_id).filter(Boolean))]
+    const userIds    = [...new Set(bids.map(b => b.carrier_user_id).filter(Boolean))]
+
+    const [{ data: carriers }, { data: profiles }] = await Promise.all([
+      carrierIds.length
+        ? supabase.from('carriers').select('id, company_name, rating, verified').in('id', carrierIds)
+        : Promise.resolve({ data: [] }),
+      userIds.length
+        ? supabase.from('profiles').select('id, full_name').in('id', userIds)
+        : Promise.resolve({ data: [] }),
+    ])
+
+    const carrierMap = Object.fromEntries((carriers || []).map(c => [c.id, c]))
+    const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]))
+
+    setBidsModal({
+      load,
+      bids: bids.map(b => ({
+        ...b,
+        carriers: carrierMap[b.carrier_id] || null,
+        profiles: profileMap[b.carrier_user_id] || null,
+      })),
+    })
   }
 
   const initPayment = async (load, bid) => {
@@ -389,9 +413,38 @@ export default function ShipperDashboard() {
     fetchData()
   }
 
+  const startSharingPickup = (shipmentId) => {
+    if (!navigator.geolocation) { alert('GPS not available on this device'); return }
+    setSharingPickup(shipmentId)
+    pickupWatcher.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        await supabase.from('shipments').update({
+          pickup_lat:        pos.coords.latitude,
+          pickup_lng:        pos.coords.longitude,
+          pickup_shared_at:  new Date().toISOString(),
+        }).eq('id', shipmentId)
+      },
+      (err) => console.error('GPS error:', err),
+      { enableHighAccuracy: true, maximumAge: 10000 }
+    )
+  }
+
+  const stopSharingPickup = () => {
+    if (pickupWatcher.current != null) {
+      navigator.geolocation.clearWatch(pickupWatcher.current)
+      pickupWatcher.current = null
+    }
+    setSharingPickup(null)
+  }
+
+  // Cleanup GPS watcher on unmount
+  useEffect(() => () => {
+    if (pickupWatcher.current != null) navigator.geolocation.clearWatch(pickupWatcher.current)
+  }, [])
+
   const allRows = [
     ...loads.map(l => ({ _type: 'load', id: l.id, reference: l.id.slice(0,8).toUpperCase(), from_location: l.from_location, to_location: l.to_location, status: 'pending', price: l.price_estimate || 0, progress_pct: 0, cargo: `${l.cargo_type} (${l.weight_kg}kg)`, carrier: null, eta: '—', image_url: l.image_url })),
-    ...shipments.map(s => ({ _type: 'shipment', id: s.id, reference: s.reference || s.id.slice(0,8).toUpperCase(), from_location: s.loads?.from_location || '—', to_location: s.loads?.to_location || '—', status: s.status, price: s.price || 0, progress_pct: s.progress_pct || 0, cargo: s.loads ? `${s.loads.cargo_type} (${s.loads.weight_kg}kg)` : '—', carrier: s.carriers?.company_name, carrier_user_id: s.carriers?.user_id, eta: s.eta ? new Date(s.eta).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '—', image_url: s.loads?.image_url, shipment_id: s.id, carrier_id: s.carrier_id, has_review: reviewedIds.has(s.id) })),
+    ...shipments.map(s => ({ _type: 'shipment', id: s.id, reference: s.reference || s.id.slice(0,8).toUpperCase(), from_location: s.loads?.from_location || '—', to_location: s.loads?.to_location || '—', status: s.status, price: s.price || 0, progress_pct: s.progress_pct || 0, cargo: s.loads ? `${s.loads.cargo_type} (${s.loads.weight_kg}kg)` : '—', carrier: s.carriers?.company_name, carrier_user_id: s.carriers?.user_id, eta: s.eta ? new Date(s.eta).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '—', image_url: s.loads?.image_url, shipment_id: s.id, carrier_id: s.carrier_id, pickup_lat: s.pickup_lat, pickup_lng: s.pickup_lng, pickup_shared_at: s.pickup_shared_at, has_review: reviewedIds.has(s.id) })),
   ]
 
   const active    = allRows.filter(r => ['in_transit','picked_up','confirmed','matched'].includes(r.status)).length
@@ -545,6 +598,24 @@ export default function ShipperDashboard() {
                         </div>
                         <div className="text-right flex-shrink-0 space-y-1">
                           <p className="font-display font-700 text-stone-900">{s.price ? `P ${s.price.toLocaleString()}` : 'TBD'}</p>
+                          {s._type === 'shipment' && s.status === 'confirmed' && (
+                            sharingPickup === s.shipment_id ? (
+                              <button onClick={stopSharingPickup}
+                                className="flex items-center gap-1 text-xs bg-rose-500 text-white px-2 py-1.5 rounded-lg hover:bg-rose-600 transition-colors font-medium w-full justify-center">
+                                <Navigation size={10} className="animate-pulse" /> Stop Sharing
+                              </button>
+                            ) : (
+                              <button onClick={() => startSharingPickup(s.shipment_id)}
+                                className="flex items-center gap-1 text-xs bg-blue-500 text-white px-2 py-1.5 rounded-lg hover:bg-blue-600 transition-colors font-medium w-full justify-center">
+                                <Navigation size={10} /> Share My Location
+                              </button>
+                            )
+                          )}
+                          {s._type === 'shipment' && s.status === 'confirmed' && s.pickup_lat && (
+                            <p className="text-xs text-forest-600 font-medium flex items-center gap-1">
+                              <MapPin size={9} /> Location live
+                            </p>
+                          )}
                           {s._type === 'shipment' && ['in_transit','picked_up'].includes(s.status) && (
                             <Link to={`/track/${s.reference}`} className="block text-xs text-forest-600 hover:underline">Track →</Link>
                           )}
