@@ -1,5 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Truck, Menu, X, Bell, MessageSquare, LogOut, User, ChevronDown, Map, Settings, Shield } from 'lucide-react'
+
+import cargoLogo from './Cargo match.png'
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AuthModal from './AuthModal'
@@ -41,13 +43,8 @@ export default function Navbar() {
       <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
-          <Link to={user ? (isShipper ? '/shipper' : '/carrier') : '/'} className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-forest-500 rounded-lg flex items-center justify-center group-hover:bg-forest-600 transition-colors">
-              <Truck size={16} className="text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-display font-800 text-lg text-stone-900">
-              Cargo<span className="text-forest-500">Match</span>
-            </span>
+          <Link to={user ? (isShipper ? '/shipper' : '/carrier') : '/'} className="flex items-center group">
+            <img src={cargoLogo} alt="CargoMatch" className="h-10 w-auto object-contain" />
           </Link>
 
           {/* Desktop links */}

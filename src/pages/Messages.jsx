@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Send, Search, Truck, Package, MapPin, ArrowRight, Phone, MoreVertical, CheckCheck, MessageSquare, Navigation } from 'lucide-react'
+import { Send, Search, Package, MapPin, CheckCheck, MessageSquare, Navigation, ArrowLeft } from 'lucide-react'
 
 const QUICK_REPLIES = [
   'When can you pick up?',
@@ -185,7 +185,7 @@ export default function Messages() {
       <div className="flex-1 flex pt-16 overflow-hidden" style={{ maxHeight: '100vh' }}>
 
         {/* Sidebar */}
-        <div className="w-80 flex-shrink-0 border-r border-stone-200 bg-white flex flex-col">
+        <div className={`${activeId ? 'hidden md:flex' : 'flex'} w-full md:w-80 flex-shrink-0 border-r border-stone-200 bg-white flex-col`}>
           <div className="p-4 border-b border-stone-100">
             <h2 className="font-display font-700 text-stone-900 mb-3">Messages</h2>
             <div className="relative">
@@ -207,7 +207,7 @@ export default function Messages() {
             )}
             {filtered.map(c => (
               <button key={c.id}
-                onClick={() => { setActiveId(c.id); markRead(c.id) }}
+                onClick={() => { setActiveId(c.id); markRead(c.id); }}
                 className={`w-full text-left px-4 py-3.5 border-b border-stone-50 transition-colors hover:bg-stone-50 ${activeId === c.id ? 'bg-forest-50 border-l-2 border-l-forest-500' : ''}`}>
                 <div className="flex items-start gap-3">
                   <div className="relative flex-shrink-0">
@@ -237,11 +237,14 @@ export default function Messages() {
 
         {/* Chat area */}
         {active ? (
-          <div className="flex-1 flex flex-col min-w-0 bg-stone-50">
+          <div className="flex-1 flex flex-col min-w-0 bg-stone-50 w-full">
             {/* Header */}
             <div className="bg-white border-b border-stone-200 flex-shrink-0">
-              <div className="px-6 py-3 flex items-center justify-between">
+              <div className="px-4 md:px-6 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-3">
+                  <button onClick={() => setActiveId(null)} className="md:hidden p-1.5 -ml-1 text-stone-500 hover:text-stone-800">
+                    <ArrowLeft size={18} />
+                  </button>
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center font-display font-700 text-sm ${active.avatarColor}`}>{active.avatar}</div>
                   <div>
                     <span className="font-display font-700 text-stone-900 text-sm">{active.name}</span>
@@ -287,7 +290,7 @@ export default function Messages() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
+            <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6 space-y-3">
               {active.messages.length === 0 && (
                 <div className="text-center text-stone-400 text-sm py-12">No messages yet. Say hello!</div>
               )}

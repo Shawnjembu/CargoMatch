@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, Truck, Mail, Lock, User, Phone, AlertCircle, CheckCircle } from 'lucide-react'
+import { X, Mail, Lock, User, Phone, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react'
+import cargoLogo from './Cargo match.png'
 import { useAuth } from '../context/AuthContext'
 
 export default function AuthModal({ onClose, defaultMode = 'signin' }) {
@@ -10,6 +11,7 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
   const [error,   setError]   = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPw, setShowPw] = useState(false)
   const [form, setForm] = useState({
     email: '', password: '', full_name: '', phone: '', role: 'shipper'
   })
@@ -63,9 +65,8 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-7 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100"><X size={18} /></button>
 
-        <div className="flex items-center gap-2 mb-6">
-          <div className="w-8 h-8 bg-forest-500 rounded-lg flex items-center justify-center"><Truck size={15} className="text-white" /></div>
-          <span className="font-display font-800 text-lg text-stone-900">Cargo<span className="text-forest-500">Match</span></span>
+        <div className="mb-6">
+          <img src={cargoLogo} alt="CargoMatch" className="h-10 w-auto object-contain" />
         </div>
 
         <h2 className="font-display text-2xl font-800 text-stone-900 mb-1">
@@ -114,9 +115,12 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
           <div>
             <label className="block text-xs font-medium text-stone-600 mb-1.5">Password * {mode === 'signup' && <span className="text-stone-400 font-normal">(min 6 chars)</span>}</label>
             <div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input type="password" placeholder="••••••••" value={form.password} onChange={e => set('password', e.target.value)}
+              <input type={showPw ? 'text' : 'password'} placeholder="••••••••" value={form.password} onChange={e => set('password', e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !loading && handleSubmit()}
-                className="w-full pl-9 pr-4 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" /></div>
+                className="w-full pl-9 pr-10 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" />
+              <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600">
+                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button></div>
           </div>
         </div>
 
