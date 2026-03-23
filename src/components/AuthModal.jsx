@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, Mail, Lock, User, Phone, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react'
-import cargoLogo from './Cargo match.png'
+import { X, Truck, Mail, Lock, User, Phone, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function AuthModal({ onClose, defaultMode = 'signin' }) {
@@ -65,8 +64,13 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-7 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100"><X size={18} /></button>
 
-        <div className="mb-6">
-          <img src={cargoLogo} alt="CargoMatch" className="h-10 w-auto object-contain" />
+        <div className="flex items-center gap-2 mb-6">
+          <div className="w-8 h-8 bg-forest-500 rounded-lg flex items-center justify-center">
+            <Truck size={15} className="text-white" />
+          </div>
+          <span className="font-display font-800 text-lg">
+            <span className="text-forest-600">Cargo</span><span className="text-forest-500">Match</span>
+          </span>
         </div>
 
         <h2 className="font-display text-2xl font-800 text-stone-900 mb-1">
