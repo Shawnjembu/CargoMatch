@@ -11,10 +11,11 @@ import CarrierProfile from './pages/CarrierProfile'
 import ProfileSettings from './pages/ProfileSettings'
 import MapView from './pages/MapView'
 import AdminDashboard from './pages/AdminDashboard'
-import PaymentReturn       from './pages/PaymentReturn'
-import NotFound            from './pages/NotFound'
-import Invoice             from './pages/Invoice'
-import CarrierSubscription from './pages/CarrierSubscription'
+import PaymentReturn            from './pages/PaymentReturn'
+import NotFound                from './pages/NotFound'
+import Invoice                 from './pages/Invoice'
+import CarrierSubscription     from './pages/CarrierSubscription'
+import SubscriptionSuccess     from './pages/SubscriptionSuccess'
 
 function RoleRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
@@ -47,10 +48,12 @@ export default function App() {
         <Route path="/profile"           element={<RoleRoute><ProfileSettings /></RoleRoute>} />
         <Route path="/map"               element={<RoleRoute><MapView /></RoleRoute>} />
         <Route path="/admin"             element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-        <Route path="/payment/return"        element={<RoleRoute><PaymentReturn /></RoleRoute>} />
-        <Route path="/invoice/:id"           element={<RoleRoute><Invoice /></RoleRoute>} />
-        <Route path="/carrier/subscription"  element={<RoleRoute><CarrierSubscription /></RoleRoute>} />
-        <Route path="*"                  element={<NotFound />} />
+        <Route path="/payment/return"                  element={<RoleRoute><PaymentReturn /></RoleRoute>} />
+        <Route path="/invoice/:id"                     element={<RoleRoute><Invoice /></RoleRoute>} />
+        {/* carrier/subscription must come BEFORE carrier/:id to avoid id="subscription" match */}
+        <Route path="/carrier/subscription"            element={<RoleRoute><CarrierSubscription /></RoleRoute>} />
+        <Route path="/carrier/subscription/success"    element={<RoleRoute><SubscriptionSuccess /></RoleRoute>} />
+        <Route path="*"                                element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   )
