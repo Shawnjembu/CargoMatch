@@ -12,7 +12,7 @@ import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
   Navigation, X, Play, RefreshCw, Search, Send,
-  Gavel, Info, CreditCard, Lock
+  Gavel, Info, CreditCard, Lock, Globe
 } from 'lucide-react'
 
 // ── Smart Matching Engine ────────────────────────────────────
@@ -239,12 +239,12 @@ export default function CarrierDashboard() {
   const [submittingBid,  setSubmittingBid]  = useState(false)
   const [myBidIds,       setMyBidIds]       = useState(new Set()) // load_ids I've bid on
   // Upgrade modal
-  const [upgradeModal,   setUpgradeModal]   = useState({ show: false, reason: '' })
+  const [upgradeModal,   setUpgradeModal]   = useState({ isOpen: false, reason: '', blockedAction: null })
 
   // Subscription
   const {
     currentTier, daysRemaining, truckLimit,
-    canBid, canAddTruck, canPostTrip, canAccessAnalytics,
+    canBid, canAddTruck, canPostTrip, canAccessAnalytics, canAccessSADC,
     bidsUsedThisMonth, bidsRemainingThisMonth,
     createTrialSubscription, incrementBidCount,
   } = useSubscription(carrierInfo?.id)
@@ -468,7 +468,7 @@ export default function CarrierDashboard() {
     if (!newTruck.type || !newTruck.plate) return
     if (!canAddTruck(trucks.length)) {
       setAddingTruck(false)
-      setUpgradeModal({ show: true, reason: `You've reached the ${truckLimit}-truck limit on ${currentTier === 'trial' ? 'your trial' : currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}. Upgrade to add more trucks.` })
+      setUpgradeModal({ isOpen: true, reason: `You've reached the ${truckLimit}-truck limit on ${currentTier === 'trial' ? 'your trial' : currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}. Upgrade to add more trucks.`, blockedAction: 'truck' })
       return
     }
     let carrier = carrierInfo
@@ -506,7 +506,7 @@ export default function CarrierDashboard() {
     if (!tripForm.from || !tripForm.to || !tripForm.date) return
     if (!canPostTrip()) {
       setShowPostTrip(false)
-      setUpgradeModal({ show: true, reason: 'Your trial has ended. Upgrade to post trips.' })
+      setUpgradeModal({ isOpen: true, reason: 'Your trial has ended. Upgrade to post trips.', blockedAction: currentTier === 'expired' ? 'expired' : 'trip' })
       return
     }
     setSavingTrip(true)
@@ -582,9 +582,9 @@ export default function CarrierDashboard() {
   const openBidModal = (load) => {
     if (!canBid()) {
       if (currentTier === 'expired') {
-        setUpgradeModal({ show: true, reason: 'Your trial has ended. Upgrade to place bids.', force: true })
+        setUpgradeModal({ isOpen: true, reason: 'Your access has expired. Subscribe to continue placing bids.', blockedAction: 'expired' })
       } else {
-        setUpgradeModal({ show: true, reason: `You've used all ${bidsUsedThisMonth} bids this month on ${currentTier === 'trial' ? 'your trial' : 'Basic'}. Upgrade to Pro for unlimited bidding.` })
+        setUpgradeModal({ isOpen: true, reason: `You've used all ${bidsUsedThisMonth} bids this month on ${currentTier === 'trial' ? 'your trial' : 'Basic'}. Upgrade to Pro for unlimited bidding.`, blockedAction: 'bid' })
       }
       return
     }
@@ -749,7 +749,22 @@ export default function CarrierDashboard() {
         </div>
 
         {/* Trial countdown banner */}
-        {currentTier === 'trial' && <TrialBanner daysRemaining={daysRemaining} />}
+        {currentTier === 'trial'   && <TrialBanner daysRemaining={daysRemaining} />}
+        {currentTier === 'expired' && (
+          <div className="mx-4 sm:mx-6 mb-4 flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+            <Lock size={16} className="text-rose-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-700 text-rose-800">Your trial has ended</p>
+              <p className="text-xs text-rose-600">Dashboard is read-only. Upgrade to post trips, add trucks, and place bids.</p>
+            </div>
+            <button
+              onClick={() => navigate('/carrier/subscription')}
+              className="flex-shrink-0 bg-rose-500 hover:bg-rose-600 text-white text-xs font-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Choose Plan
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-stone-100 p-1 rounded-xl overflow-x-auto scrollbar-none w-full sm:w-fit">
@@ -1021,9 +1036,12 @@ export default function CarrierDashboard() {
                 </div>
                 <p className="font-display font-700 text-stone-900 text-sm mb-1">Earnings Analytics</p>
                 <p className="text-xs text-stone-400 mb-4">Monthly trend charts and per-route breakdowns are available on Pro and Enterprise.</p>
-                <Link to="/carrier/subscription" className="inline-flex items-center gap-1.5 text-xs font-medium text-forest-600 hover:text-forest-700 bg-forest-50 border border-forest-200 px-4 py-2 rounded-lg">
+                <button
+                  onClick={() => setUpgradeModal({ isOpen: true, reason: 'Earnings analytics are available on Pro and Enterprise plans.', blockedAction: 'analytics' })}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-forest-600 hover:text-forest-700 bg-forest-50 border border-forest-200 px-4 py-2 rounded-lg transition-colors"
+                >
                   Upgrade to Pro
-                </Link>
+                </button>
               </div>
             )}
             {canAccessAnalytics() && (() => {
@@ -1121,6 +1139,20 @@ export default function CarrierDashboard() {
               </h2>
               <span className="text-xs text-stone-400">{availableLoads.length} available loads shown</span>
             </div>
+            {!canAccessSADC() && (
+              <div className="flex items-center gap-3 px-5 py-3 bg-purple-50 border-b border-purple-100">
+                <Globe size={14} className="text-purple-500 flex-shrink-0" />
+                <p className="text-xs text-purple-700 flex-1">
+                  SADC cross-border loads are only visible on the <strong>Enterprise</strong> plan.
+                </p>
+                <button
+                  onClick={() => setUpgradeModal({ isOpen: true, reason: 'SADC cross-border routes are available on Enterprise only.', blockedAction: 'sadc' })}
+                  className="text-xs font-medium text-purple-700 hover:text-purple-900 underline underline-offset-2 flex-shrink-0"
+                >
+                  Upgrade
+                </button>
+              </div>
+            )}
             <div ref={mapRef} style={{ height: '500px', width: '100%' }} />
             <div className="px-5 py-3 border-t border-stone-100 flex gap-4 text-xs text-stone-500 flex-wrap">
               {availableLoads.slice(0,5).map((l, i) => {
@@ -1465,54 +1497,12 @@ export default function CarrierDashboard() {
 
     {/* Upgrade Modal */}
     <UpgradeModal
-      show={upgradeModal.show}
+      isOpen={upgradeModal.isOpen}
       reason={upgradeModal.reason}
-      forceUpgrade={upgradeModal.force || false}
-      onClose={() => setUpgradeModal({ show: false, reason: '' })}
+      blockedAction={upgradeModal.blockedAction}
+      onClose={() => setUpgradeModal({ isOpen: false, reason: '', blockedAction: null })}
     />
 
-    {/* Expired full-screen overlay — carrier must upgrade to continue */}
-    {currentTier === 'expired' && (
-      <div className="fixed inset-0 z-40 flex items-center justify-center px-4 bg-stone-900/70 backdrop-blur-sm">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-8 animate-fadeUp">
-          <div className="text-center mb-8">
-            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Lock size={24} className="text-rose-500" />
-            </div>
-            <h2 className="font-display text-2xl font-800 text-stone-900 mb-2">Your trial has ended</h2>
-            <p className="text-stone-500 text-sm">Choose a plan to continue using CargoMatch.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            {[
-              { id: 'basic', name: 'Basic', price: 150, features: ['2 trucks', '10 bids/mo', 'Verified badge'], color: 'border-stone-200' },
-              { id: 'pro',   name: 'Pro',   price: 350, features: ['5 trucks', 'Unlimited bids', 'Priority matching'], color: 'border-forest-400 bg-forest-50/40', popular: true },
-              { id: 'enterprise', name: 'Enterprise', price: 750, features: ['Unlimited trucks', 'SADC loads', 'First access'], color: 'border-purple-200 bg-purple-50/30' },
-            ].map(p => (
-              <div key={p.id} className={`rounded-xl border p-4 ${p.color}`}>
-                {p.popular && <span className="text-xs font-700 text-forest-600 block mb-1">Most Popular</span>}
-                <p className="font-display font-700 text-stone-900 mb-0.5">{p.name}</p>
-                <p className="text-forest-600 font-700 text-xl mb-3">P {p.price}<span className="text-xs font-normal text-stone-400">/mo</span></p>
-                {p.features.map((f, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-xs text-stone-600 mb-1">
-                    <CheckCircle size={10} className="text-forest-500" /> {f}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => navigate('/carrier/subscription')}
-              className="flex-1 py-3.5 bg-forest-500 hover:bg-forest-600 text-white font-display font-700 rounded-xl transition-all">
-              Choose a Plan
-            </button>
-            <button onClick={() => { supabase.auth.signOut(); navigate('/') }}
-              className="px-6 py-3.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors">
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
 
     {/* Shipper Review Modal */}
     {shipperReviewModal && (

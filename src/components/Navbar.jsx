@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Truck, Menu, X, Bell, MessageSquare, LogOut, User, ChevronDown, Map, Settings, Shield } from 'lucide-react'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 import AuthModal from './AuthModal'
 
 export default function Navbar() {
@@ -12,10 +13,24 @@ export default function Navbar() {
   const [open,     setOpen]     = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [userMenu, setUserMenu] = useState(false)
+  const [subTier,  setSubTier]  = useState(null)
 
   const isShipper = profile?.role === 'shipper' || profile?.role === 'both'
   const isCarrier = profile?.role === 'carrier' || profile?.role === 'both'
   const isAdmin   = profile?.is_admin === true
+
+  // Fetch subscription tier for carrier badge/indicator
+  useEffect(() => {
+    if (!user || !isCarrier) { setSubTier(null); return }
+    supabase
+      .from('carriers').select('id').eq('user_id', user.id).maybeSingle()
+      .then(({ data: c }) => {
+        if (!c) return
+        return supabase
+          .from('carrier_subscriptions').select('subscription_tier').eq('carrier_id', c.id).maybeSingle()
+          .then(({ data: s }) => { if (s) setSubTier(s.subscription_tier) })
+      })
+  }, [user, isCarrier])
 
   const links = user ? [
     isShipper && { to: '/shipper', label: 'Dashboard' },
@@ -24,7 +39,7 @@ export default function Navbar() {
     isShipper && { to: '/post-load', label: 'Post Load' },
     { to: '/map', label: 'Map' },
     { to: '/messages', label: 'Messages' },
-    isCarrier && { to: '/carrier/subscription', label: 'Subscription' },
+    isCarrier && { to: '/carrier/subscription', label: 'Subscription', expired: subTier === 'expired' },
     isAdmin && { to: '/admin', label: 'Admin' },
   ].filter(Boolean) : [
     { to: '/', label: 'Home' },
@@ -56,9 +71,14 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-1">
             {links.map(l => (
               <Link key={l.to} to={l.to}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   isActive(l.to) ? 'bg-forest-500 text-white' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-                }`}>{l.label}</Link>
+                }`}>
+                {l.label}
+                {l.expired && (
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                )}
+              </Link>
             ))}
           </div>
 
@@ -158,7 +178,12 @@ export default function Navbar() {
           <div className="md:hidden border-t border-stone-200 bg-white/95 px-6 py-4 flex flex-col gap-2">
             {links.map(l => (
               <Link key={l.to} to={l.to} onClick={() => setOpen(false)}
-                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive(l.to) ? 'bg-forest-500 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>{l.label}</Link>
+                className={`relative px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive(l.to) ? 'bg-forest-500 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
+                {l.label}
+                {l.expired && (
+                  <span className="absolute top-2 right-3 w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                )}
+              </Link>
             ))}
             {user ? (
               <>

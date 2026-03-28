@@ -78,26 +78,26 @@ export function useSubscription(carrierId) {
     return { data, error }
   }, [])
 
-  // ── Upgrade after successful payment ──────────────────────────
-  const upgradeSubscription = useCallback(async (newTier) => {
-    if (!subscription?.id) return { error: 'No subscription row found' }
-    const now    = new Date()
-    const subEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+  // ── Upgrade after successful payment (server-side via edge function) ─
+  const upgradeSubscription = useCallback(async (newTier, paymentToken) => {
+    if (!carrierId) return { error: 'No carrier ID' }
 
-    const { data, error } = await supabase.from('carrier_subscriptions')
-      .update({
-        subscription_tier:  newTier,
-        subscription_start: now.toISOString(),
-        subscription_end:   subEnd.toISOString(),
-        monthly_bid_count:  0,
-        monthly_bid_reset:  subEnd.toISOString(),
-      })
-      .eq('id', subscription.id)
-      .select().single()
+    const { data, error } = await supabase.functions.invoke('activate-subscription', {
+      body: {
+        carrier_id:    carrierId,
+        plan:          newTier,
+        payment_token: paymentToken,
+      },
+    })
 
-    if (!error && data) setSubscription(data)
-    return { data, error }
-  }, [subscription])
+    if (error || !data?.success) {
+      return { error: data?.error ?? error?.message ?? 'Activation failed' }
+    }
+
+    // Refresh local subscription state after server activation
+    await fetchSubscription()
+    return { data }
+  }, [carrierId, fetchSubscription])
 
   // ── Increment monthly bid counter (Basic / Trial) ─────────────
   const incrementBidCount = useCallback(async () => {

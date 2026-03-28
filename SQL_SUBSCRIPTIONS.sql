@@ -51,6 +51,7 @@ CREATE TRIGGER set_carrier_subscriptions_updated_at
 ALTER TABLE public.carrier_subscriptions ENABLE ROW LEVEL SECURITY;
 
 -- 4a. Carriers can read their own subscription
+DROP POLICY IF EXISTS "carrier_subs_select_own" ON public.carrier_subscriptions;
 CREATE POLICY "carrier_subs_select_own"
   ON public.carrier_subscriptions FOR SELECT
   USING (
@@ -60,6 +61,7 @@ CREATE POLICY "carrier_subs_select_own"
   );
 
 -- 4b. Carriers can insert their own subscription row
+DROP POLICY IF EXISTS "carrier_subs_insert_own" ON public.carrier_subscriptions;
 CREATE POLICY "carrier_subs_insert_own"
   ON public.carrier_subscriptions FOR INSERT
   WITH CHECK (
@@ -69,6 +71,7 @@ CREATE POLICY "carrier_subs_insert_own"
   );
 
 -- 4c. Carriers can update their own subscription row
+DROP POLICY IF EXISTS "carrier_subs_update_own" ON public.carrier_subscriptions;
 CREATE POLICY "carrier_subs_update_own"
   ON public.carrier_subscriptions FOR UPDATE
   USING (
