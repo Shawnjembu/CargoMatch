@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { calcMinRate, fmtBWP } from '../lib/rates'
 import CountUp from '../components/CountUp'
+import { useSubscription } from '../hooks/useSubscription'
+import TrialBanner from '../components/TrialBanner'
+import UpgradeModal from '../components/UpgradeModal'
 import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
@@ -87,11 +90,11 @@ function LoadCard({ l, openBidModal, myBidIds, recommended, index = 0 }) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 text-sm text-stone-700 mb-1">
-            <MapPin size={12} className="text-forest-500" />
-            <span className="font-medium">{l.from_location}</span>
-            <ArrowRight size={11} className="text-stone-300" />
-            <span className="font-medium">{l.to_location}</span>
+          <div className="flex items-center gap-1 text-sm text-stone-700 mb-1 min-w-0">
+            <MapPin size={12} className="text-forest-500 flex-shrink-0" />
+            <span className="font-medium truncate max-w-[90px]">{l.from_location}</span>
+            <ArrowRight size={11} className="text-stone-300 flex-shrink-0" />
+            <span className="font-medium truncate max-w-[90px]">{l.to_location}</span>
           </div>
           <p className="text-xs text-stone-400">{l.cargo_type} · {l.weight_kg}kg</p>
           <div className="flex items-center gap-3 mt-1 text-xs text-stone-400">
@@ -161,7 +164,6 @@ const CITIES = {
   'Kang':            { lat: -23.6833, lng: 22.8333 },
   'Hukuntsi':        { lat: -23.9833, lng: 21.7500 },
   'Good Hope':       { lat: -25.9500, lng: 25.9833 },
-  'Tlokweng':        { lat: -24.6000, lng: 26.0500 },
   'Gabane':          { lat: -24.6000, lng: 25.7500 },
   'Pilane':          { lat: -24.3300, lng: 25.9000 },
 }
@@ -193,6 +195,7 @@ function getCity(loc) {
 
 export default function CarrierDashboard() {
   const { user, profile } = useAuth()
+  const navigate    = useNavigate()
   const mapRef      = useRef(null)
   const leafletMap  = useRef(null)
   const markersRef  = useRef([])
@@ -235,6 +238,16 @@ export default function CarrierDashboard() {
   const [bidNote,        setBidNote]        = useState('')
   const [submittingBid,  setSubmittingBid]  = useState(false)
   const [myBidIds,       setMyBidIds]       = useState(new Set()) // load_ids I've bid on
+  // Upgrade modal
+  const [upgradeModal,   setUpgradeModal]   = useState({ show: false, reason: '' })
+
+  // Subscription
+  const {
+    currentTier, daysRemaining, truckLimit,
+    canBid, canAddTruck, canPostTrip, canAccessAnalytics,
+    bidsUsedThisMonth, bidsRemainingThisMonth,
+    createTrialSubscription, incrementBidCount,
+  } = useSubscription(carrierInfo?.id)
 
   useEffect(() => {
     if (!user) return
@@ -366,6 +379,8 @@ export default function CarrierDashboard() {
             .select().single()
           carrier = data
           setCarrierInfo(data)
+          // Auto-create trial subscription for new carrier
+          if (data?.id) await createTrialSubscription(data.id)
         } else {
           await supabase.from('carriers').update({ company_name: wizardData.company_name, reg_number: wizardData.reg_number }).eq('id', carrier.id)
           setCarrierInfo(c => ({ ...c, company_name: wizardData.company_name }))
@@ -451,6 +466,11 @@ export default function CarrierDashboard() {
 
   const addTruck = async () => {
     if (!newTruck.type || !newTruck.plate) return
+    if (!canAddTruck(trucks.length)) {
+      setAddingTruck(false)
+      setUpgradeModal({ show: true, reason: `You've reached the ${truckLimit}-truck limit on ${currentTier === 'trial' ? 'your trial' : currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}. Upgrade to add more trucks.` })
+      return
+    }
     let carrier = carrierInfo
     if (!carrier) {
       const { data } = await supabase
@@ -484,6 +504,11 @@ export default function CarrierDashboard() {
 
   const postTrip = async () => {
     if (!tripForm.from || !tripForm.to || !tripForm.date) return
+    if (!canPostTrip()) {
+      setShowPostTrip(false)
+      setUpgradeModal({ show: true, reason: 'Your trial has ended. Upgrade to post trips.' })
+      return
+    }
     setSavingTrip(true)
     let carrier = carrierInfo
     if (!carrier) {
@@ -555,6 +580,14 @@ export default function CarrierDashboard() {
   }
 
   const openBidModal = (load) => {
+    if (!canBid()) {
+      if (currentTier === 'expired') {
+        setUpgradeModal({ show: true, reason: 'Your trial has ended. Upgrade to place bids.', force: true })
+      } else {
+        setUpgradeModal({ show: true, reason: `You've used all ${bidsUsedThisMonth} bids this month on ${currentTier === 'trial' ? 'your trial' : 'Basic'}. Upgrade to Pro for unlimited bidding.` })
+      }
+      return
+    }
     const min = calcMinRate(load.from_location, load.to_location, load.weight_kg)
     setBidModal(load)
     setBidPrice(String(load.price_estimate || min))
@@ -586,6 +619,8 @@ export default function CarrierDashboard() {
     if (!error) {
       setMyBidIds(prev => new Set([...prev, bidModal.id]))
       setAvailableLoads(prev => prev.map(l => l.id === bidModal.id ? { ...l, _bidCount: (l._bidCount || 0) + 1 } : l))
+      // Track bid usage for Basic/Trial tiers
+      if (currentTier === 'basic' || currentTier === 'trial') await incrementBidCount()
       // Notify shipper
       await supabase.from('notifications').insert({
         user_id: bidModal.shipper_id,
@@ -601,7 +636,14 @@ export default function CarrierDashboard() {
     setSubmittingBid(false)
   }
 
-  const monthEarnings   = myTrips.filter(t => t.status === 'delivered').reduce((s, t) => s + (t.price || 0), 0)
+  const now = new Date()
+  const monthEarnings = myTrips
+    .filter(t => {
+      if (t.status !== 'delivered' || !t.delivered_at) return false
+      const d = new Date(t.delivered_at)
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    })
+    .reduce((s, t) => s + (t.price || 0), 0)
   const totalReleased   = myTrips.reduce((s, t) => s + (t.escrow_transactions?.status === 'released' ? Number(t.escrow_transactions.amount || 0) : 0), 0)
   const totalInEscrow   = myTrips.reduce((s, t) => s + (t.escrow_transactions?.status === 'held'     ? Number(t.escrow_transactions.amount || 0) : 0), 0)
   const activeTrips     = myTrips.filter(t => ['confirmed','picked_up','in_transit'].includes(t.status))
@@ -638,7 +680,7 @@ export default function CarrierDashboard() {
     <>
     <div className="min-h-screen bg-cream font-body">
       <Navbar />
-      <div className="max-w-7xl mx-auto px-6 pt-28 pb-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-24 pb-16">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
@@ -652,6 +694,22 @@ export default function CarrierDashboard() {
                 <Shield size={10} /> Verified Carrier
               </span>
             )}
+            {/* Subscription status badge */}
+            <Link to="/carrier/subscription" className="inline-block mt-1">
+              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
+                currentTier === 'trial'      ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                currentTier === 'basic'      ? 'bg-stone-100 text-stone-600 border-stone-200' :
+                currentTier === 'pro'        ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                currentTier === 'enterprise' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                'bg-rose-50 text-rose-700 border-rose-200'
+              }`}>
+                {currentTier === 'trial'      && `Trial · ${daysRemaining}d left`}
+                {currentTier === 'basic'      && 'Basic'}
+                {currentTier === 'pro'        && 'Pro'}
+                {currentTier === 'enterprise' && 'Enterprise'}
+                {currentTier === 'expired'    && 'Expired · Upgrade'}
+              </span>
+            </Link>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {newLoadCount > 0 && (
@@ -690,8 +748,11 @@ export default function CarrierDashboard() {
           ))}
         </div>
 
+        {/* Trial countdown banner */}
+        {currentTier === 'trial' && <TrialBanner daysRemaining={daysRemaining} />}
+
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-stone-100 p-1 rounded-xl w-fit">
+        <div className="flex gap-1 mb-6 bg-stone-100 p-1 rounded-xl overflow-x-auto scrollbar-none w-full sm:w-fit">
           {[
             { id: 'loads',    label: '📦 Available Loads', badge: availableLoads.length },
             { id: 'trips',    label: '🚛 My Trips',        badge: activeTrips.length },
@@ -839,11 +900,11 @@ export default function CarrierDashboard() {
                                 {statusLabels[t.status] || t.status}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1 text-sm text-stone-600">
-                              <MapPin size={11} className="text-forest-500" />
-                              <span>{t.loads?.from_location}</span>
-                              <ArrowRight size={10} className="text-stone-300" />
-                              <span>{t.loads?.to_location}</span>
+                            <div className="flex items-center gap-1 text-sm text-stone-600 min-w-0">
+                              <MapPin size={11} className="text-forest-500 flex-shrink-0" />
+                              <span className="truncate max-w-[80px]">{t.loads?.from_location}</span>
+                              <ArrowRight size={10} className="text-stone-300 flex-shrink-0" />
+                              <span className="truncate max-w-[80px]">{t.loads?.to_location}</span>
                             </div>
                             <p className="text-xs text-stone-400 mt-0.5">{t.loads?.cargo_type} · {t.loads?.weight_kg}kg</p>
                             {rating && (
@@ -952,8 +1013,20 @@ export default function CarrierDashboard() {
               ))}
             </div>
 
-            {/* Monthly bar chart */}
-            {(() => {
+            {/* Monthly bar chart — Pro/Enterprise only */}
+            {!canAccessAnalytics() && (
+              <div className="bg-white rounded-2xl border border-stone-100 p-8 text-center">
+                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <TrendingUp size={20} className="text-blue-500" />
+                </div>
+                <p className="font-display font-700 text-stone-900 text-sm mb-1">Earnings Analytics</p>
+                <p className="text-xs text-stone-400 mb-4">Monthly trend charts and per-route breakdowns are available on Pro and Enterprise.</p>
+                <Link to="/carrier/subscription" className="inline-flex items-center gap-1.5 text-xs font-medium text-forest-600 hover:text-forest-700 bg-forest-50 border border-forest-200 px-4 py-2 rounded-lg">
+                  Upgrade to Pro
+                </Link>
+              </div>
+            )}
+            {canAccessAnalytics() && (() => {
               const months = {}
               myTrips.forEach(t => {
                 const d = new Date(t.created_at)
@@ -992,7 +1065,7 @@ export default function CarrierDashboard() {
               )
             })()}
 
-            {/* Transaction list */}
+            {/* Transaction list — always visible */}
             <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden">
               <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
                 <h3 className="font-display font-700 text-stone-900 text-sm">Payment History</h3>
@@ -1389,6 +1462,57 @@ export default function CarrierDashboard() {
         </div>
       )
     })()}
+
+    {/* Upgrade Modal */}
+    <UpgradeModal
+      show={upgradeModal.show}
+      reason={upgradeModal.reason}
+      forceUpgrade={upgradeModal.force || false}
+      onClose={() => setUpgradeModal({ show: false, reason: '' })}
+    />
+
+    {/* Expired full-screen overlay — carrier must upgrade to continue */}
+    {currentTier === 'expired' && (
+      <div className="fixed inset-0 z-40 flex items-center justify-center px-4 bg-stone-900/70 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-8 animate-fadeUp">
+          <div className="text-center mb-8">
+            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Lock size={24} className="text-rose-500" />
+            </div>
+            <h2 className="font-display text-2xl font-800 text-stone-900 mb-2">Your trial has ended</h2>
+            <p className="text-stone-500 text-sm">Choose a plan to continue using CargoMatch.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            {[
+              { id: 'basic', name: 'Basic', price: 150, features: ['2 trucks', '10 bids/mo', 'Verified badge'], color: 'border-stone-200' },
+              { id: 'pro',   name: 'Pro',   price: 350, features: ['5 trucks', 'Unlimited bids', 'Priority matching'], color: 'border-forest-400 bg-forest-50/40', popular: true },
+              { id: 'enterprise', name: 'Enterprise', price: 750, features: ['Unlimited trucks', 'SADC loads', 'First access'], color: 'border-purple-200 bg-purple-50/30' },
+            ].map(p => (
+              <div key={p.id} className={`rounded-xl border p-4 ${p.color}`}>
+                {p.popular && <span className="text-xs font-700 text-forest-600 block mb-1">Most Popular</span>}
+                <p className="font-display font-700 text-stone-900 mb-0.5">{p.name}</p>
+                <p className="text-forest-600 font-700 text-xl mb-3">P {p.price}<span className="text-xs font-normal text-stone-400">/mo</span></p>
+                {p.features.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-stone-600 mb-1">
+                    <CheckCircle size={10} className="text-forest-500" /> {f}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => navigate('/carrier/subscription')}
+              className="flex-1 py-3.5 bg-forest-500 hover:bg-forest-600 text-white font-display font-700 rounded-xl transition-all">
+              Choose a Plan
+            </button>
+            <button onClick={() => { supabase.auth.signOut(); navigate('/') }}
+              className="px-6 py-3.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Shipper Review Modal */}
     {shipperReviewModal && (

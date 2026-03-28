@@ -24,6 +24,7 @@ export default function Navbar() {
     isShipper && { to: '/post-load', label: 'Post Load' },
     { to: '/map', label: 'Map' },
     { to: '/messages', label: 'Messages' },
+    isCarrier && { to: '/carrier/subscription', label: 'Subscription' },
     isAdmin && { to: '/admin', label: 'Admin' },
   ].filter(Boolean) : [
     { to: '/', label: 'Home' },

@@ -211,12 +211,15 @@ export default function TrackShipment() {
     return () => clearInterval(interval)
   }, [mapReady, liveCoord])
 
+  const isDelivered = shipment?.status === 'delivered'
+  const displayProgress = isDelivered ? 100 : liveProgress
+
   const events = [
     { label: 'Order Confirmed',            done: true },
-    { label: 'Cargo Picked Up',            done: liveProgress > 5 },
-    { label: 'In Transit',                 done: liveProgress > 10 },
-    { label: 'Approaching Destination',    done: liveProgress > 80 },
-    { label: 'Delivered',                  done: liveProgress >= 100 || shipment?.status === 'delivered' },
+    { label: 'Cargo Picked Up',            done: isDelivered || liveProgress > 5 },
+    { label: 'In Transit',                 done: isDelivered || liveProgress > 10 },
+    { label: 'Approaching Destination',    done: isDelivered || liveProgress > 80 },
+    { label: 'Delivered',                  done: isDelivered || liveProgress >= 100 },
   ]
 
   if (!loading && notFound) {
@@ -272,19 +275,45 @@ export default function TrackShipment() {
               </div>
               {loading ? (
                 <div className="h-96 flex items-center justify-center text-stone-400 text-sm">Loading map...</div>
+              ) : isDelivered ? (
+                <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
+                  <div className="w-20 h-20 bg-forest-100 rounded-full flex items-center justify-center mb-5">
+                    <CheckCircle size={40} className="text-forest-500" />
+                  </div>
+                  <h2 className="font-display text-2xl font-800 text-stone-900 mb-1">Delivery Confirmed</h2>
+                  <p className="text-stone-400 text-sm mb-6">
+                    {shipment?.delivered_at
+                      ? `Delivered on ${new Date(shipment.delivered_at).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} at ${new Date(shipment.delivered_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+                      : 'Shipment has been delivered successfully.'}
+                  </p>
+                  <div className="bg-stone-50 rounded-2xl px-6 py-4 text-left w-full max-w-xs space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-stone-400">Carrier</span>
+                      <span className="font-medium text-stone-800">{shipment?.carriers?.company_name || '—'}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-stone-400">Route</span>
+                      <span className="font-medium text-stone-800 text-right text-xs">{fromLoc} → {toLoc}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-stone-400">Reference</span>
+                      <span className="font-medium text-stone-800">{shipment?.reference || shipmentId}</span>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div ref={mapRef} style={{ height: '420px', width: '100%' }} />
               )}
               <div className="px-5 py-3 border-t border-stone-100">
                 <div className="flex justify-between text-xs text-stone-500 mb-1.5">
                   <span className="font-medium">{fromLoc}</span>
-                  <span className="text-forest-600 font-medium">{Math.round(liveProgress)}% complete</span>
+                  <span className="text-forest-600 font-medium">{Math.round(displayProgress)}% complete</span>
                   <span className="font-medium">{toLoc}</span>
                 </div>
                 <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
                   <div className="relative h-full bg-forest-500 rounded-full overflow-hidden"
-                    style={{ width: `${liveProgress}%`, transition: 'width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                    {shipment?.status !== 'delivered' && <span className="animate-shimmer" />}
+                    style={{ width: `${displayProgress}%`, transition: 'width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                    {!isDelivered && <span className="animate-shimmer" />}
                   </div>
                 </div>
               </div>

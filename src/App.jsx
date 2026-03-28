@@ -11,9 +11,10 @@ import CarrierProfile from './pages/CarrierProfile'
 import ProfileSettings from './pages/ProfileSettings'
 import MapView from './pages/MapView'
 import AdminDashboard from './pages/AdminDashboard'
-import PaymentReturn  from './pages/PaymentReturn'
-import NotFound       from './pages/NotFound'
-import Invoice        from './pages/Invoice'
+import PaymentReturn       from './pages/PaymentReturn'
+import NotFound            from './pages/NotFound'
+import Invoice             from './pages/Invoice'
+import CarrierSubscription from './pages/CarrierSubscription'
 
 function RoleRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
@@ -46,8 +47,9 @@ export default function App() {
         <Route path="/profile"           element={<RoleRoute><ProfileSettings /></RoleRoute>} />
         <Route path="/map"               element={<RoleRoute><MapView /></RoleRoute>} />
         <Route path="/admin"             element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-        <Route path="/payment/return"    element={<RoleRoute><PaymentReturn /></RoleRoute>} />
-        <Route path="/invoice/:id"       element={<RoleRoute><Invoice /></RoleRoute>} />
+        <Route path="/payment/return"        element={<RoleRoute><PaymentReturn /></RoleRoute>} />
+        <Route path="/invoice/:id"           element={<RoleRoute><Invoice /></RoleRoute>} />
+        <Route path="/carrier/subscription"  element={<RoleRoute><CarrierSubscription /></RoleRoute>} />
         <Route path="*"                  element={<NotFound />} />
       </Routes>
     </BrowserRouter>
