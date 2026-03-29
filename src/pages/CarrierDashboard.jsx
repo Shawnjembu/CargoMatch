@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
@@ -8,12 +8,25 @@ import CountUp from '../components/CountUp'
 import { useSubscription } from '../hooks/useSubscription'
 import TrialBanner from '../components/TrialBanner'
 import UpgradeModal from '../components/UpgradeModal'
+import LocationInput from '../components/LocationInput'
+import { useUserLocation } from '../hooks/useUserLocation'
 import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
   Navigation, X, Play, RefreshCw, Search, Send,
   Gavel, Info, CreditCard, Lock, Globe
 } from 'lucide-react'
+
+// ── Adjacent cities map (within ~50km) ──────────────────────
+const ADJACENT_CITIES = {
+  'gaborone':    ['tlokweng', 'mogoditshane', 'phakalane', 'ramotswa', 'mochudi', 'lobatse'],
+  'francistown': ['mahalapye', 'palapye', 'selibe-phikwe'],
+  'maun':        ['sehithwa', 'toteng', 'gumare', 'nokaneng'],
+  'serowe':      ['palapye', 'mahalapye'],
+  'palapye':     ['serowe', 'mahalapye', 'francistown'],
+  'lobatse':     ['gaborone', 'ramotswa', 'goodhope'],
+  'molepolole':  ['gaborone', 'mogoditshane', 'thamaga', 'moshupa'],
+}
 
 // ── Smart Matching Engine ────────────────────────────────────
 function scoreLoad(load, carrierInfo, carrierRoutes, trucks) {
@@ -34,11 +47,17 @@ function scoreLoad(load, carrierInfo, carrierRoutes, trucks) {
     tags.push({ label: 'Route Match', style: 'bg-forest-50 text-forest-700 border-forest-200' })
   }
 
-  // Carrier home location matches pickup city
-  const carrierCity = carrierInfo?.profiles?.location?.toLowerCase() || ''
-  if (carrierCity && lFrom.includes(carrierCity)) {
-    score += 20
-    tags.push({ label: 'Near Pickup', style: 'bg-blue-50 text-blue-700 border-blue-200' })
+  // Near Pickup: use GPS-detected current_location first, fall back to profile location
+  const rawCity = (carrierInfo?.current_location || carrierInfo?.profiles?.location || '').toLowerCase()
+  const carrierCity = rawCity.split(',')[0].trim()
+  if (carrierCity) {
+    const pickupCity = lFrom.split(',')[0].trim()
+    const isNear = pickupCity.includes(carrierCity) || carrierCity.includes(pickupCity) ||
+      (ADJACENT_CITIES[carrierCity] || []).some(adj => pickupCity.includes(adj) || adj.includes(pickupCity))
+    if (isNear) {
+      score += 20
+      tags.push({ label: 'Near Pickup', style: 'bg-blue-50 text-blue-700 border-blue-200' })
+    }
   }
 
   // Verification bonus
@@ -240,6 +259,22 @@ export default function CarrierDashboard() {
   const [myBidIds,       setMyBidIds]       = useState(new Set()) // load_ids I've bid on
   // Upgrade modal
   const [upgradeModal,   setUpgradeModal]   = useState({ isOpen: false, reason: '', blockedAction: null })
+  // Earnings
+  const [earnings,       setEarnings]       = useState([])
+  // Location banner
+  const [locationBannerDismissed, setLocationBannerDismissed] = useState(
+    () => sessionStorage.getItem('cm_loc_banner_dismissed') === '1'
+  )
+  const [savingLocation,   setSavingLocation]   = useState(false)
+  const [tripFromDetected, setTripFromDetected] = useState(false)
+
+  // GPS hook (for location banner + Post Trip pre-fill)
+  const {
+    city: detectedCity,
+    loading: gpsLoading,
+    requestLocation: requestGpsLocation,
+    requestLocationSilently,
+  } = useUserLocation()
 
   // Subscription
   const {
@@ -308,10 +343,18 @@ export default function CarrierDashboard() {
         const reviewed = new Set((trips || []).filter(t => t.reviews?.some(r => r.reviewer_id === user.id)).map(t => t.id))
         setReviewedTripIds(reviewed)
         setCarrierRoutes(routes || [])
+
+        // Fetch real earnings from carrier_earnings table
+        const { data: earningsData } = await supabase
+          .from('carrier_earnings')
+          .select('*, loads(from_location, to_location)')
+          .eq('carrier_id', carrier.id)
+          .order('earned_at', { ascending: false })
+        setEarnings(earningsData || [])
       }
 
       const [{ data: loads, error: loadsError }, { data: allBids }] = await Promise.all([
-        supabase.from('loads').select('*, profiles(full_name, phone)').eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('loads').select('*, profiles!loads_shipper_id_fkey(full_name, phone)').eq('status', 'pending').order('created_at', { ascending: false }),
         supabase.from('load_bids').select('load_id, carrier_user_id').eq('status', 'pending'),
       ])
       if (loadsError) console.error('Loads error:', loadsError)
@@ -337,6 +380,34 @@ export default function CarrierDashboard() {
   useEffect(() => {
     if (!loading && !carrierInfo?.company_name) setShowWizard(true)
   }, [loading, carrierInfo])
+
+  // Silent location detection on load — pre-fill if already granted
+  useEffect(() => {
+    if (!carrierInfo?.id) return
+    if (carrierInfo.current_location) return // already has location
+    requestLocationSilently().then(result => {
+      if (result?.city) saveCarrierLocation(result.city, carrierInfo.id)
+    })
+  }, [carrierInfo?.id])
+
+  // When GPS detects a city (via banner Enable button), save it
+  useEffect(() => {
+    if (detectedCity && carrierInfo?.id) {
+      saveCarrierLocation(detectedCity, carrierInfo.id)
+    }
+  }, [detectedCity])
+
+  const saveCarrierLocation = useCallback(async (cityName, cId) => {
+    if (!cityName || !cId) return
+    setSavingLocation(true)
+    await supabase.from('carriers').update({
+      current_location:    cityName,
+      location_updated_at: new Date().toISOString(),
+    }).eq('id', cId)
+    // Update local state so Near Pickup badge reacts immediately
+    setCarrierInfo(prev => prev ? { ...prev, current_location: cityName } : prev)
+    setSavingLocation(false)
+  }, [])
 
   // Cleanup GPS watcher on unmount
   useEffect(() => {
@@ -637,15 +708,18 @@ export default function CarrierDashboard() {
   }
 
   const now = new Date()
-  const monthEarnings = myTrips
-    .filter(t => {
-      if (t.status !== 'delivered' || !t.delivered_at) return false
-      const d = new Date(t.delivered_at)
+  // Earnings from carrier_earnings table (real paid amounts)
+  const monthEarnings = earnings
+    .filter(e => {
+      if (e.status !== 'released') return false
+      const d = new Date(e.earned_at)
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     })
-    .reduce((s, t) => s + (t.price || 0), 0)
-  const totalReleased   = myTrips.reduce((s, t) => s + (t.escrow_transactions?.status === 'released' ? Number(t.escrow_transactions.amount || 0) : 0), 0)
-  const totalInEscrow   = myTrips.reduce((s, t) => s + (t.escrow_transactions?.status === 'held'     ? Number(t.escrow_transactions.amount || 0) : 0), 0)
+    .reduce((s, e) => s + Number(e.amount || 0), 0)
+  const totalReleased = earnings
+    .filter(e => e.status === 'released')
+    .reduce((s, e) => s + Number(e.amount || 0), 0)
+  const totalInEscrow = 0 // escrow phase removed; earnings recorded on delivery
   const activeTrips     = myTrips.filter(t => ['confirmed','picked_up','in_transit'].includes(t.status))
   const avgRating     = carrierInfo?.rating || 0
 
@@ -694,22 +768,29 @@ export default function CarrierDashboard() {
                 <Shield size={10} /> Verified Carrier
               </span>
             )}
-            {/* Subscription status badge */}
-            <Link to="/carrier/subscription" className="inline-block mt-1">
-              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
-                currentTier === 'trial'      ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                currentTier === 'basic'      ? 'bg-stone-100 text-stone-600 border-stone-200' :
-                currentTier === 'pro'        ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                currentTier === 'enterprise' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+            {/* Subscription status badge — client-side expiry safety net */}
+            {(() => {
+              const effectiveTier = (currentTier === 'trial' && daysRemaining <= 0) ? 'expired' : currentTier
+              const pillClass =
+                effectiveTier === 'trial'      ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                effectiveTier === 'basic'      ? 'bg-stone-100 text-stone-600 border-stone-200' :
+                effectiveTier === 'pro'        ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                effectiveTier === 'enterprise' ? 'bg-purple-50 text-purple-700 border-purple-200' :
                 'bg-rose-50 text-rose-700 border-rose-200'
-              }`}>
-                {currentTier === 'trial'      && `Trial · ${daysRemaining}d left`}
-                {currentTier === 'basic'      && 'Basic'}
-                {currentTier === 'pro'        && 'Pro'}
-                {currentTier === 'enterprise' && 'Enterprise'}
-                {currentTier === 'expired'    && 'Expired · Upgrade'}
-              </span>
-            </Link>
+              const pillLabel =
+                effectiveTier === 'trial'      ? `Trial · ${daysRemaining}d left` :
+                effectiveTier === 'basic'      ? 'Basic' :
+                effectiveTier === 'pro'        ? 'Pro' :
+                effectiveTier === 'enterprise' ? 'Enterprise' :
+                'Expired · Upgrade'
+              return (
+                <Link to="/carrier/subscription" className="inline-block mt-1">
+                  <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${pillClass}`}>
+                    {pillLabel}
+                  </span>
+                </Link>
+              )
+            })()}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {newLoadCount > 0 && (
@@ -717,7 +798,25 @@ export default function CarrierDashboard() {
                 <Bell size={13} /> {newLoadCount} new load{newLoadCount > 1 ? 's' : ''}!
               </div>
             )}
-            <button onClick={() => { setShowPostTrip(true) }}
+            <button onClick={() => {
+              setShowPostTrip(true)
+              // Pre-fill From if carrier has a known location
+              if (!tripForm.from) {
+                const knownCity = carrierInfo?.current_location
+                if (knownCity) {
+                  setTripForm(f => ({ ...f, from: knownCity }))
+                  setTripFromDetected(true)
+                } else {
+                  // Try silent detection
+                  requestLocationSilently().then(result => {
+                    if (result?.city) {
+                      setTripForm(f => ({ ...f, from: result.city }))
+                      setTripFromDetected(true)
+                    }
+                  })
+                }
+              }
+            }}
               className="flex items-center gap-2 bg-forest-500 hover:bg-forest-600 text-white text-sm font-medium px-4 py-2 rounded-xl transition-all">
               <Navigation size={14} /> Post a Trip
             </button>
@@ -733,20 +832,60 @@ export default function CarrierDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'This Month',   icon: DollarSign,  color: 'text-forest-600 bg-forest-50', node: <CountUp to={monthEarnings} prefix="P " duration={1200} /> },
-            { label: 'Active Trips', icon: Truck,       color: 'text-blue-600 bg-blue-50',     node: <CountUp to={activeTrips.length} duration={900} /> },
-            { label: 'Rating',       icon: Star,        color: 'text-amber-600 bg-amber-50',   node: avgRating ? <CountUp to={avgRating} suffix=" ★" decimals={1} duration={1000} /> : 'New' },
-            { label: 'Fleet',        icon: TrendingUp,  color: 'text-purple-600 bg-purple-50', node: <><CountUp to={trucks.length} duration={800} /> truck{trucks.length !== 1 ? 's' : ''}</> },
-          ].map((s, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-stone-100 p-5 animate-slideUp"
-              style={{ animationDelay: `${i * 60}ms` }}>
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}><s.icon size={18} /></div>
-              <p className="font-display text-2xl font-800 text-stone-900">{s.node}</p>
-              <p className="text-xs text-stone-400 mt-0.5">{s.label}</p>
-            </div>
-          ))}
+          {loading ? (
+            // Loading skeletons
+            [0,1,2,3].map(i => (
+              <div key={i} className="bg-white rounded-2xl border border-stone-100 p-5 animate-pulse">
+                <div className="w-9 h-9 rounded-xl bg-stone-100 mb-3" />
+                <div className="h-7 w-24 bg-stone-100 rounded-lg mb-1" />
+                <div className="h-3 w-16 bg-stone-100 rounded-full" />
+              </div>
+            ))
+          ) : (
+            [
+              { label: 'This Month',   icon: DollarSign,  color: 'text-forest-600 bg-forest-50', node: <CountUp to={monthEarnings} prefix="P " decimals={2} duration={1200} /> },
+              { label: 'Active Trips', icon: Truck,       color: 'text-blue-600 bg-blue-50',     node: <CountUp to={activeTrips.length} duration={900} /> },
+              { label: 'Rating',       icon: Star,        color: 'text-amber-600 bg-amber-50',   node: avgRating ? <CountUp to={avgRating} suffix=" ★" decimals={1} duration={1000} /> : <span className="text-stone-400">—</span> },
+              { label: 'Fleet',        icon: TrendingUp,  color: 'text-purple-600 bg-purple-50', node: <><CountUp to={trucks.length} duration={800} /> truck{trucks.length !== 1 ? 's' : ''}</> },
+            ].map((s, i) => (
+              <div key={i} className="bg-white rounded-2xl border border-stone-100 p-5 animate-slideUp"
+                style={{ animationDelay: `${i * 60}ms` }}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}><s.icon size={18} /></div>
+                <p className="font-display text-2xl font-800 text-stone-900">{s.node}</p>
+                <p className="text-xs text-stone-400 mt-0.5">{s.label}</p>
+              </div>
+            ))
+          )}
         </div>
+
+        {/* Location banner */}
+        {!loading && carrierInfo && !locationBannerDismissed && !carrierInfo.current_location && (
+          <div className="mx-4 sm:mx-6 mb-4 flex items-center gap-3 bg-forest-50 border border-forest-200 rounded-xl px-4 py-3">
+            <span className="text-base flex-shrink-0">📍</span>
+            <p className="text-sm text-forest-800 flex-1">Share your location to get better load matches near you</p>
+            <button
+              onClick={() => { requestGpsLocation() }}
+              disabled={gpsLoading || savingLocation}
+              className="flex-shrink-0 bg-forest-500 hover:bg-forest-600 disabled:opacity-60 text-white text-xs font-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {gpsLoading || savingLocation ? 'Detecting…' : 'Enable location'}
+            </button>
+            <button
+              onClick={() => {
+                setLocationBannerDismissed(true)
+                sessionStorage.setItem('cm_loc_banner_dismissed', '1')
+              }}
+              className="flex-shrink-0 text-xs text-stone-400 hover:text-stone-600 transition-colors"
+            >
+              Not now
+            </button>
+          </div>
+        )}
+        {!loading && carrierInfo?.current_location && (
+          <p className="mx-4 sm:mx-6 mb-3 text-xs text-forest-600">
+            📍 Showing loads near <strong>{carrierInfo.current_location.split(',')[0]}</strong>
+          </p>
+        )}
 
         {/* Trial countdown banner */}
         {currentTier === 'trial'   && <TrialBanner daysRemaining={daysRemaining} />}
@@ -1014,112 +1153,151 @@ export default function CarrierDashboard() {
             {/* Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
-                { label: 'Total Released',  value: totalReleased, icon: CheckCircle, color: 'text-forest-600 bg-forest-50', prefix: 'P ' },
-                { label: 'In Escrow',       value: totalInEscrow, icon: Lock,        color: 'text-amber-600 bg-amber-50',   prefix: 'P ' },
-                { label: 'Total Trips',     value: myTrips.length,icon: Truck,       color: 'text-blue-600 bg-blue-50',     prefix: '' },
+                { label: 'Total Earned',  value: totalReleased,   icon: CheckCircle, color: 'text-forest-600 bg-forest-50', prefix: 'P ', decimals: 2 },
+                { label: 'This Month',    value: monthEarnings,   icon: DollarSign,  color: 'text-blue-600 bg-blue-50',    prefix: 'P ', decimals: 2 },
+                { label: 'Total Trips',   value: myTrips.length,  icon: Truck,       color: 'text-purple-600 bg-purple-50', prefix: '', decimals: 0 },
               ].map((c, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-stone-100 p-5 animate-slideUp" style={{ animationDelay: `${i * 60}ms` }}>
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${c.color}`}><c.icon size={18} /></div>
                   <p className="font-display text-2xl font-800 text-stone-900">
-                    <CountUp to={c.value} prefix={c.prefix} duration={1100 + i * 100} />
+                    <CountUp to={c.value} prefix={c.prefix} decimals={c.decimals} duration={1100 + i * 100} />
                   </p>
                   <p className="text-xs text-stone-400 mt-0.5">{c.label}</p>
                 </div>
               ))}
             </div>
 
-            {/* Monthly bar chart — Pro/Enterprise only */}
-            {!canAccessAnalytics() && (
-              <div className="bg-white rounded-2xl border border-stone-100 p-8 text-center">
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <TrendingUp size={20} className="text-blue-500" />
+            {/* Analytics — Pro / Enterprise only */}
+            {!canAccessAnalytics() ? (
+              <div className="bg-white rounded-2xl border border-stone-100 p-8 text-center relative overflow-hidden">
+                {/* Blurred preview bars */}
+                <div className="absolute inset-0 flex items-end gap-3 px-8 pb-12 opacity-10 pointer-events-none">
+                  {[40,70,50,90,65,80].map((h, i) => (
+                    <div key={i} className="flex-1 bg-forest-500 rounded-t-lg" style={{ height: `${h}%` }} />
+                  ))}
                 </div>
-                <p className="font-display font-700 text-stone-900 text-sm mb-1">Earnings Analytics</p>
-                <p className="text-xs text-stone-400 mb-4">Monthly trend charts and per-route breakdowns are available on Pro and Enterprise.</p>
-                <button
-                  onClick={() => setUpgradeModal({ isOpen: true, reason: 'Earnings analytics are available on Pro and Enterprise plans.', blockedAction: 'analytics' })}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-forest-600 hover:text-forest-700 bg-forest-50 border border-forest-200 px-4 py-2 rounded-lg transition-colors"
-                >
-                  Upgrade to Pro
-                </button>
+                <div className="relative z-10">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mx-auto mb-3">
+                    <TrendingUp size={20} className="text-blue-500" />
+                  </div>
+                  <p className="font-display font-700 text-stone-900 text-sm mb-1">Full Earnings Analytics</p>
+                  <p className="text-xs text-stone-400 mb-4">Monthly charts, per-load breakdown, and top routes are available on Pro and Enterprise.</p>
+                  <button
+                    onClick={() => setUpgradeModal({ isOpen: true, reason: 'Earnings analytics are available on Pro and Enterprise plans.', blockedAction: 'analytics' })}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-forest-600 hover:text-forest-700 bg-forest-50 border border-forest-200 px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Upgrade to Pro
+                  </button>
+                </div>
               </div>
-            )}
-            {canAccessAnalytics() && (() => {
+            ) : (() => {
+              // Monthly chart — last 6 months from carrier_earnings
               const months = {}
-              myTrips.forEach(t => {
-                const d = new Date(t.created_at)
+              earnings.forEach(e => {
+                const d = new Date(e.earned_at)
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
                 const label = d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })
-                if (!months[key]) months[key] = { label, released: 0, escrow: 0 }
-                if (t.escrow_transactions?.status === 'released') months[key].released += Number(t.escrow_transactions.amount || 0)
-                if (t.escrow_transactions?.status === 'held')     months[key].escrow   += Number(t.escrow_transactions.amount || 0)
+                if (!months[key]) months[key] = { label, amount: 0 }
+                if (e.status === 'released') months[key].amount += Number(e.amount || 0)
               })
-              const entries = Object.values(months).slice(-6)
-              const maxVal  = Math.max(...entries.map(e => e.released + e.escrow), 1)
-              if (entries.length === 0) return null
+              const entries = Object.values(months).sort((a, b) => a.label.localeCompare(b.label)).slice(-6)
+              const maxVal  = Math.max(...entries.map(e => e.amount), 1)
+
+              // Top routes
+              const routeMap = {}
+              earnings.forEach(e => {
+                const from = e.loads?.from_location
+                const to   = e.loads?.to_location
+                if (!from || !to) return
+                const key = `${from} → ${to}`
+                if (!routeMap[key]) routeMap[key] = { route: key, amount: 0, trips: 0 }
+                routeMap[key].amount += Number(e.amount || 0)
+                routeMap[key].trips  += 1
+              })
+              const topRoutes = Object.values(routeMap).sort((a, b) => b.amount - a.amount).slice(0, 5)
+
               return (
-                <div className="bg-white rounded-2xl border border-stone-100 p-5">
-                  <h3 className="font-display font-700 text-stone-900 text-sm mb-4">Monthly Earnings</h3>
-                  <div className="flex items-end gap-3 h-32">
-                    {entries.map((e, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full flex flex-col justify-end rounded-t-lg overflow-hidden" style={{ height: '96px' }}>
-                          <div className="w-full bg-forest-400 rounded-t-lg transition-all duration-700"
-                            style={{ height: `${((e.released / maxVal) * 88)}px`, minHeight: e.released ? 4 : 0 }} />
-                          {e.escrow > 0 && (
-                            <div className="w-full bg-amber-300 transition-all duration-700"
-                              style={{ height: `${((e.escrow / maxVal) * 88)}px`, minHeight: e.escrow ? 4 : 0 }} />
-                          )}
-                        </div>
-                        <span className="text-xs text-stone-400">{e.label}</span>
+                <>
+                  {/* Monthly bar chart */}
+                  {entries.length > 0 && (
+                    <div className="bg-white rounded-2xl border border-stone-100 p-5">
+                      <h3 className="font-display font-700 text-stone-900 text-sm mb-4">Monthly Earnings (BWP)</h3>
+                      <div className="flex items-end gap-2 h-36">
+                        {entries.map((e, i) => (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                            <p className="text-xs text-stone-500 font-medium">
+                              {e.amount > 0 ? `P${Math.round(e.amount / 1000) > 0 ? (e.amount / 1000).toFixed(1) + 'k' : e.amount.toFixed(0)}` : ''}
+                            </p>
+                            <div className="w-full bg-stone-100 rounded-t-lg" style={{ height: '96px' }}>
+                              <div
+                                className="w-full bg-forest-500 rounded-t-lg transition-all duration-700 mt-auto"
+                                style={{ height: `${(e.amount / maxVal) * 96}px`, marginTop: `${96 - (e.amount / maxVal) * 96}px`, minHeight: e.amount > 0 ? 4 : 0 }}
+                              />
+                            </div>
+                            <span className="text-xs text-stone-400">{e.label}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-4 mt-3 text-xs text-stone-400">
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-forest-400 inline-block" /> Released</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-300 inline-block" /> In Escrow</span>
-                  </div>
-                </div>
+                    </div>
+                  )}
+
+                  {/* Top routes */}
+                  {topRoutes.length > 0 && (
+                    <div className="bg-white rounded-2xl border border-stone-100 p-5">
+                      <h3 className="font-display font-700 text-stone-900 text-sm mb-4">Top Routes by Earnings</h3>
+                      <div className="space-y-3">
+                        {topRoutes.map((r, i) => (
+                          <div key={i} className="flex items-center gap-3">
+                            <span className="text-xs font-700 text-stone-400 w-4">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-stone-800 truncate">{r.route}</p>
+                              <p className="text-xs text-stone-400">{r.trips} trip{r.trips !== 1 ? 's' : ''}</p>
+                            </div>
+                            <p className="font-display font-700 text-forest-600 text-sm flex-shrink-0">
+                              P {r.amount.toLocaleString()}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )
             })()}
 
-            {/* Transaction list — always visible */}
+            {/* Per-load earnings table */}
             <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden">
               <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
-                <h3 className="font-display font-700 text-stone-900 text-sm">Payment History</h3>
-                <span className="text-xs text-stone-400">{myTrips.filter(t => t.escrow_transactions).length} transactions</span>
+                <h3 className="font-display font-700 text-stone-900 text-sm">Earnings History</h3>
+                <span className="text-xs text-stone-400">{earnings.length} record{earnings.length !== 1 ? 's' : ''}</span>
               </div>
-              {myTrips.length === 0 ? (
+              {earnings.length === 0 ? (
                 <div className="py-12 text-center">
-                  <CreditCard size={28} className="text-stone-300 mx-auto mb-3" />
-                  <p className="text-stone-400 text-sm">No payments yet.</p>
+                  <DollarSign size={28} className="text-stone-300 mx-auto mb-3" />
+                  <p className="text-stone-400 text-sm font-medium mb-1">No earnings yet</p>
+                  <p className="text-stone-300 text-xs">Earnings are recorded when you complete a delivery.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-stone-50 animate-fadeIn">
-                  {myTrips.map((t, idx) => {
-                    const esc     = t.escrow_transactions
-                    const paid    = esc?.paid_at    ? new Date(esc.paid_at).toLocaleDateString('en-GB',    { day: '2-digit', month: 'short', year: 'numeric' }) : null
-                    const released= esc?.released_at ? new Date(esc.released_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+                <div className="divide-y divide-stone-50">
+                  {earnings.slice(0, 20).map((e, idx) => {
+                    const date = new Date(e.earned_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                     return (
-                      <div key={t.id} className="px-5 py-4 hover:bg-stone-50 transition-all animate-slideUp flex items-center gap-4"
+                      <div key={e.id} className="px-5 py-4 hover:bg-stone-50 transition-all flex items-center gap-4"
                         style={{ animationDelay: `${idx * 35}ms` }}>
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${esc?.status === 'released' ? 'bg-forest-50' : esc ? 'bg-amber-50' : 'bg-stone-100'}`}>
-                          {esc?.status === 'released' ? <CheckCircle size={14} className="text-forest-500" /> : esc ? <Lock size={14} className="text-amber-500" /> : <Clock size={14} className="text-stone-400" />}
+                        <div className="w-8 h-8 rounded-xl bg-forest-50 flex items-center justify-center flex-shrink-0">
+                          <CheckCircle size={14} className="text-forest-500" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="font-display font-700 text-stone-900 text-sm">{t.reference}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${esc?.status === 'released' ? 'bg-forest-50 text-forest-700' : esc?.status === 'held' ? 'bg-amber-50 text-amber-700' : 'bg-stone-100 text-stone-500'}`}>
-                              {esc?.status === 'released' ? 'Paid out' : esc?.status === 'held' ? 'In escrow' : 'Pending'}
-                            </span>
-                          </div>
-                          <p className="text-xs text-stone-500 truncate">{t.loads?.from_location} → {t.loads?.to_location}</p>
-                          {paid     && <p className="text-xs text-stone-400 mt-0.5">Secured {paid}</p>}
-                          {released && <p className="text-xs text-forest-600 mt-0.5 font-medium">Released {released}</p>}
+                          <p className="text-xs text-stone-500 truncate">
+                            {e.loads?.from_location && e.loads?.to_location
+                              ? `${e.loads.from_location} → ${e.loads.to_location}`
+                              : 'Completed delivery'}
+                          </p>
+                          <p className="text-xs text-stone-400 mt-0.5">{date}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="font-display font-700 text-stone-900">{esc ? `P ${Number(esc.amount).toLocaleString()}` : `P ${(t.price || 0).toLocaleString()}`}</p>
-                          <p className="text-xs text-stone-400">{esc?.currency || 'BWP'}</p>
+                          <p className="font-display font-700 text-forest-700">P {Number(e.amount).toLocaleString('en-BW', { minimumFractionDigits: 2 })}</p>
+                          <span className="text-xs bg-forest-50 text-forest-600 px-1.5 py-0.5 rounded-full">Released</span>
                         </div>
                       </div>
                     )
@@ -1273,16 +1451,29 @@ export default function CarrierDashboard() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1.5">From</label>
-                  <input type="text" placeholder="e.g. Gaborone" value={tripForm.from}
-                    onChange={e => setTripForm(f => ({ ...f, from: e.target.value }))}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" />
+                  <LocationInput
+                    label="From"
+                    value={tripForm.from}
+                    onChange={v => { setTripForm(f => ({ ...f, from: v })); setTripFromDetected(false) }}
+                    placeholder="e.g. Gaborone"
+                    inputClassName="py-2.5 px-3"
+                    onDetected={city => {
+                      setTripFromDetected(true)
+                      if (carrierInfo?.id) saveCarrierLocation(city, carrierInfo.id)
+                    }}
+                  />
+                  {tripFromDetected && tripForm.from && (
+                    <p className="text-xs text-forest-600 mt-1">📍 Detected: {tripForm.from}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1.5">To</label>
-                  <input type="text" placeholder="e.g. Francistown" value={tripForm.to}
-                    onChange={e => setTripForm(f => ({ ...f, to: e.target.value }))}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" />
+                  <LocationInput
+                    label="To"
+                    value={tripForm.to}
+                    onChange={v => setTripForm(f => ({ ...f, to: v }))}
+                    placeholder="e.g. Francistown"
+                    inputClassName="py-2.5 px-3"
+                  />
                 </div>
               </div>
               <div>

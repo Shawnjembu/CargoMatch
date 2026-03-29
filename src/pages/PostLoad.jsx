@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { MapPin, Package, Truck, Users, AlertCircle, CheckCircle, ArrowRight, ChevronLeft, Zap, Image, X } from 'lucide-react'
+import LocationInput from '../components/LocationInput'
+import { useUserLocation } from '../hooks/useUserLocation'
 
 const STEPS = ['Route', 'Cargo', 'Preferences', 'Review']
 const cargoTypes = ['General Merchandise','Building Materials','Food & Perishables','Electronics','Furniture','Textiles','Agricultural Products','Hazardous Materials','Vehicles / Equipment','Other']
@@ -13,6 +15,8 @@ export default function PostLoad() {
   const navigate = useNavigate()
   const location = useLocation()
   const prefill  = location.state || {}
+  const [autoDetected, setAutoDetected] = useState(false)
+  const { requestLocationSilently } = useUserLocation()
   const [step, setStep]         = useState(prefill.from ? 1 : 0)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -36,6 +40,17 @@ export default function PostLoad() {
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Silently detect pickup location on mount if permission already granted
+  useEffect(() => {
+    if (prefill.from) return // already prefilled
+    requestLocationSilently().then(result => {
+      if (result?.city) {
+        setForm(f => ({ ...f, from: result.city }))
+        setAutoDetected(true)
+      }
+    })
+  }, [])
 
   const canNext = () => {
     if (step === 0) return form.from.trim() && form.to.trim() && form.pickupDate
@@ -217,12 +232,28 @@ export default function PostLoad() {
             <div className="space-y-5">
               <h2 className="font-display font-700 text-stone-900 flex items-center gap-2"><MapPin size={16} className="text-forest-500" /> Route Details</h2>
               <div className="grid sm:grid-cols-2 gap-4">
-                <div><label className="block text-xs font-medium text-stone-600 mb-1.5">Pickup Location *</label>
-                  <input type="text" placeholder="e.g. Gaborone, BW" value={form.from} onChange={e => set('from', e.target.value)}
-                    className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" /></div>
-                <div><label className="block text-xs font-medium text-stone-600 mb-1.5">Destination *</label>
-                  <input type="text" placeholder="e.g. Francistown, BW" value={form.to} onChange={e => set('to', e.target.value)}
-                    className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest-300" /></div>
+                <div>
+                  <LocationInput
+                    label="Pickup Location"
+                    required
+                    value={form.from}
+                    onChange={v => { set('from', v); setAutoDetected(false) }}
+                    placeholder="e.g. Gaborone, BW"
+                    onDetected={() => setAutoDetected(true)}
+                  />
+                  {autoDetected && form.from && (
+                    <p className="text-xs text-forest-600 mt-1">📍 Auto-detected — not you? Change it</p>
+                  )}
+                </div>
+                <div>
+                  <LocationInput
+                    label="Destination"
+                    required
+                    value={form.to}
+                    onChange={v => set('to', v)}
+                    placeholder="e.g. Francistown, BW"
+                  />
+                </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div><label className="block text-xs font-medium text-stone-600 mb-1.5">Pickup Date *</label>
