@@ -46,15 +46,14 @@ export default function AdminDashboard() {
 
   const [stats, setStats] = useState({
     totalUsers: 0, totalCarriers: 0, totalLoads: 0,
-    totalShipments: 0, completedShipments: 0, estimatedRevenue: 0,
-    pendingLoads: 0, activeShipments: 0, heldEscrow: 0,
+    totalShipments: 0, completedShipments: 0,
+    pendingLoads: 0, activeShipments: 0,
+    mrr: 0, tierCounts: { trial: 0, basic: 0, pro: 0, enterprise: 0 },
   })
   const [users,     setUsers]     = useState([])
   const [carriers,  setCarriers]  = useState([])
   const [shipments, setShipments] = useState([])
   const [loads,     setLoads]     = useState([])
-  const [escrow,    setEscrow]    = useState([])
-  const [escrowSearch, setEscrowSearch] = useState('')
 
   const [usersSearch,       setUsersSearch]       = useState('')
   const [usersRoleFilter,   setUsersRoleFilter]   = useState('all')
@@ -69,7 +68,7 @@ export default function AdminDashboard() {
 
   const fetchAll = async () => {
     setLoading(true)
-    await Promise.all([fetchStats(), fetchUsers(), fetchCarriers(), fetchShipments(), fetchLoads(), fetchEscrow()])
+    await Promise.all([fetchStats(), fetchUsers(), fetchCarriers(), fetchShipments(), fetchLoads()])
     setLoading(false)
   }
 
@@ -91,19 +90,23 @@ export default function AdminDashboard() {
       supabase.from('loads').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('shipments').select('*', { count: 'exact', head: true }).in('status', ['confirmed', 'picked_up', 'in_transit']),
     ])
-    const revenue = (completedData || []).reduce((s, x) => s + (x.price || 0), 0) * 0.05
-    const { data: escrowData } = await supabase.from('escrow_transactions').select('amount').eq('status', 'held')
-    const heldEscrow = (escrowData || []).reduce((s, x) => s + Number(x.amount || 0), 0)
+    const { data: subsData } = await supabase
+      .from('carrier_subscriptions')
+      .select('subscription_tier')
+      .in('subscription_tier', ['trial', 'basic', 'pro', 'enterprise'])
+    const tierCounts = { trial: 0, basic: 0, pro: 0, enterprise: 0 }
+    ;(subsData || []).forEach(s => { if (tierCounts[s.subscription_tier] !== undefined) tierCounts[s.subscription_tier]++ })
+    const mrr = tierCounts.basic * 150 + tierCounts.pro * 350 + tierCounts.enterprise * 750
     setStats({
       totalUsers: totalUsers || 0,
       totalCarriers: totalCarriers || 0,
       totalLoads: totalLoads || 0,
       totalShipments: totalShipments || 0,
       completedShipments: completedData?.length || 0,
-      estimatedRevenue: revenue,
       pendingLoads: pendingLoads || 0,
       activeShipments: activeShipments || 0,
-      heldEscrow,
+      mrr,
+      tierCounts,
     })
   }
 
@@ -146,18 +149,6 @@ export default function AdminDashboard() {
     setLoads(data || [])
   }
 
-  const fetchEscrow = async () => {
-    const { data } = await supabase
-      .from('escrow_transactions')
-      .select(`
-        id, amount, currency, status, dpo_reference, paid_at, released_at, created_at,
-        shipments(reference, profiles!shipments_shipper_id_fkey(full_name), carriers(company_name))
-      `)
-      .order('created_at', { ascending: false })
-      .limit(200)
-    setEscrow(data || [])
-  }
-
   const toggleVerify = async (carrierId, current) => {
     setVerifying(carrierId)
     const { error } = await supabase
@@ -194,21 +185,12 @@ export default function AdminDashboard() {
     return matchQ && matchStatus
   })
 
-  const filteredEscrow = escrow.filter(e => {
-    const q = escrowSearch.toLowerCase()
-    return !q
-      || e.shipments?.reference?.toLowerCase().includes(q)
-      || e.shipments?.carriers?.company_name?.toLowerCase().includes(q)
-      || e.shipments?.profiles?.full_name?.toLowerCase().includes(q)
-  })
-
   const TABS = [
     { id: 'overview',  label: '📊 Overview' },
     { id: 'users',     label: '👥 Users',     badge: stats.totalUsers },
     { id: 'carriers',  label: '🚛 Carriers',  badge: stats.totalCarriers },
     { id: 'shipments', label: '📦 Shipments', badge: stats.totalShipments },
     { id: 'loads',     label: '📋 Loads',     badge: stats.pendingLoads },
-    { id: 'escrow',    label: '💰 Escrow',    badge: escrow.filter(e => e.status === 'held').length },
   ]
 
   return (
@@ -259,7 +241,7 @@ export default function AdminDashboard() {
                 { label: 'Total Shipments',  value: stats.totalShipments,      icon: TrendingUp,  color: 'text-purple-600 bg-purple-50', sub: `${stats.completedShipments} delivered` },
                 { label: 'Active Shipments', value: stats.activeShipments,     icon: Truck,       color: 'text-blue-600 bg-blue-50',     sub: 'On the road now' },
                 { label: 'Completed',        value: stats.completedShipments,  icon: CheckCircle, color: 'text-forest-600 bg-forest-50', sub: 'Successful deliveries' },
-                { label: 'Est. Revenue',     value: `P ${stats.estimatedRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: DollarSign, color: 'text-emerald-600 bg-emerald-50', sub: '5% commission model' },
+                { label: 'Monthly Revenue',   value: `P ${(stats.mrr || 0).toLocaleString()}`, icon: DollarSign, color: 'text-emerald-600 bg-emerald-50', sub: `${stats.tierCounts?.basic || 0} Basic · ${stats.tierCounts?.pro || 0} Pro · ${stats.tierCounts?.enterprise || 0} Enterprise` },
                 { label: 'Pending Loads',    value: stats.pendingLoads,        icon: Clock,       color: 'text-amber-600 bg-amber-50',   sub: 'Awaiting a carrier' },
               ].map((s, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-stone-100 p-5 animate-slideUp"
@@ -580,65 +562,6 @@ export default function AdminDashboard() {
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-700 text-forest-600">P {(l.price_estimate || 0).toLocaleString()}</p>
                       <p className="text-xs text-stone-400">{new Date(l.created_at).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── ESCROW ───────────────────────────────────────────── */}
-        {tab === 'escrow' && (
-          <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100 flex-wrap gap-3">
-              <div>
-                <h2 className="font-display font-700 text-stone-900">Escrow Transactions</h2>
-                <p className="text-xs text-stone-400 mt-0.5">
-                  {escrow.filter(e => e.status === 'held').length} held ·{' '}
-                  P {stats.heldEscrow.toLocaleString()} total in escrow
-                </p>
-              </div>
-              <input type="text" placeholder="Search reference or carrier..."
-                value={escrowSearch} onChange={e => setEscrowSearch(e.target.value)}
-                className="border border-stone-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-300 w-60" />
-            </div>
-            {loading ? <SkeletonRows cols={3} rows={5} /> : filteredEscrow.length === 0 ? (
-              <div className="p-12 text-center text-stone-400 text-sm">No escrow transactions yet.</div>
-            ) : (
-              <div className="divide-y divide-stone-50">
-                {filteredEscrow.map(e => (
-                  <div key={e.id} className="flex items-center gap-4 px-6 py-4 hover:bg-stone-50 transition-colors">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      e.status === 'released' ? 'bg-forest-100' : e.status === 'held' ? 'bg-amber-100' : 'bg-stone-100'
-                    }`}>
-                      <DollarSign size={18} className={e.status === 'released' ? 'text-forest-600' : e.status === 'held' ? 'text-amber-600' : 'text-stone-400'} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-700 text-stone-900">
-                          {e.shipments?.reference || e.id.slice(0,8).toUpperCase()}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                          e.status === 'released' ? 'bg-forest-50 text-forest-700' :
-                          e.status === 'held'     ? 'bg-amber-50 text-amber-700' :
-                          e.status === 'refunded' ? 'bg-rose-50 text-rose-700' :
-                          'bg-stone-100 text-stone-500'
-                        }`}>{e.status}</span>
-                      </div>
-                      <p className="text-xs text-stone-400">
-                        {e.shipments?.profiles?.full_name || 'Shipper'} →{' '}
-                        {e.shipments?.carriers?.company_name || 'Carrier'}
-                        {e.dpo_reference && ` · DPO: ${e.dpo_reference}`}
-                      </p>
-                      <p className="text-xs text-stone-300 mt-0.5">
-                        Paid: {e.paid_at ? new Date(e.paid_at).toLocaleDateString('en-GB') : '—'}
-                        {e.released_at && ` · Released: ${new Date(e.released_at).toLocaleDateString('en-GB')}`}
-                      </p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-display font-700 text-stone-900">P {Number(e.amount).toLocaleString()}</p>
-                      <p className="text-xs text-stone-400">{e.currency}</p>
                     </div>
                   </div>
                 ))}

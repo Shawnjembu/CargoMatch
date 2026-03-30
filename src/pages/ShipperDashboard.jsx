@@ -5,7 +5,6 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import AuthModal from '../components/AuthModal'
 import { fmtBWP } from '../lib/rates'
-import { TRIAL_MODE } from '../lib/config'
 import CountUp from '../components/CountUp'
 import {
   Package, MapPin, CheckCircle, Truck, Plus, TrendingDown,
@@ -152,7 +151,7 @@ export default function ShipperDashboard() {
       })
       leafletMap.current = map
       setMapReady(true)
-    }).catch(console.error)
+    }).catch(() => {})
   }
 
   useEffect(() => {
@@ -199,23 +198,13 @@ export default function ShipperDashboard() {
   const confirmDelivery = async (shipmentId) => {
     await supabase.from('shipments').update({ status: 'delivered', delivered_at: new Date().toISOString() }).eq('id', shipmentId)
 
-    // Release escrow funds to carrier
-    const { data: escrow } = await supabase
-      .from('escrow_transactions')
-      .update({ status: 'released', released_at: new Date().toISOString() })
-      .eq('shipment_id', shipmentId)
-      .eq('status', 'held')
-      .select()
-      .maybeSingle()
-
     const s = shipments.find(x => x.id === shipmentId)
-
-    if (escrow && s?.carriers?.user_id) {
+    if (s?.carriers?.user_id) {
       await supabase.from('notifications').insert({
         user_id: s.carriers.user_id,
-        type:    'payment',
-        title:   'Payment released!',
-        body:    `P ${Number(escrow.amount).toLocaleString()} for ${s.reference} has been released to you.`,
+        type:    'delivery',
+        title:   'Delivery confirmed!',
+        body:    `${s.reference} has been marked as delivered by the shipper.`,
         link:    '/carrier',
       })
     }
@@ -261,7 +250,7 @@ export default function ShipperDashboard() {
       .eq('status', 'pending')
       .order('price', { ascending: true })
 
-    if (error) { console.error('Bids fetch error:', error); setBidsModal({ load, bids: [] }); return }
+    if (error) { setBidsModal({ load, bids: [] }); return }
     if (!bids?.length) { setBidsModal({ load, bids: [] }); return }
 
     // Step 2: enrich with carrier + profile data separately
@@ -292,97 +281,55 @@ export default function ShipperDashboard() {
 
   const initPayment = async (load, bid) => {
     setAcceptingBid(bid.id)
+    try {
+      const carrierId     = bid.carrier_id ?? bid.carriers?.id
+      const carrierUserId = bid.carrier_user_id
+      const ref           = 'CM-' + Date.now().toString(36).toUpperCase()
 
-    if (TRIAL_MODE) {
-      // ── Free trial: accept bid directly, no payment required ──
-      try {
-        const carrierId     = bid.carrier_id ?? bid.carriers?.id
-        const carrierUserId = bid.carrier_user_id
-        const ref           = 'CM-' + Date.now().toString(36).toUpperCase()
+      await supabase.from('load_bids').update({ status: 'accepted' }).eq('id', bid.id)
+      await supabase.from('load_bids').update({ status: 'rejected' }).eq('load_id', load.id).neq('id', bid.id)
+      await supabase.from('loads').update({ status: 'matched' }).eq('id', load.id)
 
-        // Accept this bid, reject all others for the load
-        await supabase.from('load_bids').update({ status: 'accepted' }).eq('id', bid.id)
-        await supabase.from('load_bids').update({ status: 'rejected' }).eq('load_id', load.id).neq('id', bid.id)
+      const { data: shipment, error: shipErr } = await supabase
+        .from('shipments')
+        .insert({
+          load_id:    load.id,
+          carrier_id: carrierId,
+          shipper_id: user.id,
+          price:      bid.price,
+          status:     'confirmed',
+          reference:  ref,
+        })
+        .select()
+        .single()
 
-        // Mark load as matched
-        await supabase.from('loads').update({ status: 'matched' }).eq('id', load.id)
+      if (shipErr) throw new Error(shipErr.message)
 
-        // Create shipment
-        const { data: shipment, error: shipErr } = await supabase
-          .from('shipments')
-          .insert({
-            load_id:    load.id,
-            carrier_id: carrierId,
-            shipper_id: user.id,
-            price:      bid.price,
-            status:     'confirmed',
-            reference:  ref,
-          })
-          .select()
-          .single()
+      await supabase.from('notifications').insert([
+        {
+          user_id: user.id,
+          type:    'match',
+          title:   'Carrier confirmed!',
+          body:    `Your shipment ${ref} is confirmed. You can now track it in real time.`,
+          link:    `/track/${ref}`,
+        },
+        {
+          user_id: carrierUserId,
+          type:    'match',
+          title:   'Bid accepted!',
+          body:    `Your bid of P ${Number(bid.price).toLocaleString()} was accepted for ${ref}.`,
+          link:    '/carrier',
+        },
+      ])
 
-        if (shipErr) throw new Error(shipErr.message)
-
-        // Notify both parties
-        await supabase.from('notifications').insert([
-          {
-            user_id: user.id,
-            type:    'match',
-            title:   'Carrier confirmed!',
-            body:    `Your shipment ${ref} is confirmed. This is a free trial — no payment required.`,
-            link:    `/track/${ref}`,
-          },
-          {
-            user_id: carrierUserId,
-            type:    'match',
-            title:   'Bid accepted!',
-            body:    `Your bid was accepted for P ${Number(bid.price).toLocaleString()}. Free trial period — no payment held.`,
-            link:    '/carrier',
-          },
-        ])
-
-        fetchData()
-        setBidsModal(null)
-        setPayModal(null)
-      } catch (err) {
-        alert('Something went wrong: ' + err.message)
-      } finally {
-        setAcceptingBid(null)
-      }
-      return
-    }
-
-    // ── Full DPO Pay flow (active when TRIAL_MODE = false) ────
-    const appUrl = window.location.origin
-    const ref    = `BID-${bid.id.slice(0,8).toUpperCase()}`
-
-    const { data, error } = await supabase.functions.invoke('dpo-create-token', {
-      body: {
-        amount:      bid.price,
-        currency:    'BWP',
-        reference:   ref,
-        redirectUrl: `${appUrl}/payment/return`,
-        backUrl:     `${appUrl}/shipper`,
-        description: `CargoMatch: ${load.from_location} → ${load.to_location}`,
-      },
-    })
-
-    if (error || !data?.payUrl) {
-      alert(data?.error ?? 'Could not initiate payment. Please try again.')
+      fetchData()
+      setBidsModal(null)
+      setPayModal(null)
+    } catch (err) {
+      alert('Something went wrong: ' + err.message)
+    } finally {
       setAcceptingBid(null)
-      return
     }
-
-    localStorage.setItem('pendingPayment', JSON.stringify({
-      bidId:         bid.id,
-      loadId:        load.id,
-      carrierId:     bid.carrier_id ?? bid.carriers?.id,
-      carrierUserId: bid.carrier_user_id,
-      shipperId:     user.id,
-      amount:        bid.price,
-    }))
-
-    window.location.href = data.payUrl
   }
 
   const markNotifRead = async (id) => {
@@ -424,7 +371,7 @@ export default function ShipperDashboard() {
           pickup_shared_at:  new Date().toISOString(),
         }).eq('id', shipmentId)
       },
-      (err) => console.error('GPS error:', err),
+      () => {},
       { enableHighAccuracy: true, maximumAge: 10000 }
     )
   }
@@ -889,8 +836,8 @@ export default function ShipperDashboard() {
 
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h3 className="font-display font-800 text-stone-900">{TRIAL_MODE ? 'Confirm Carrier' : 'Confirm Payment'}</h3>
-              <p className="text-xs text-stone-400 mt-0.5">{TRIAL_MODE ? 'Free trial — no payment required' : 'Funds held in escrow until delivery'}</p>
+              <h3 className="font-display font-800 text-stone-900">Confirm Carrier</h3>
+              <p className="text-xs text-stone-400 mt-0.5">Review the details before confirming</p>
             </div>
             <button onClick={() => setPayModal(null)} className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100"><X size={16} /></button>
           </div>
@@ -931,28 +878,16 @@ export default function ShipperDashboard() {
               <span className="text-sm text-stone-600">Freight service</span>
               <span className="text-sm font-medium text-stone-900">{fmtBWP(payModal.bid.price)}</span>
             </div>
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-50 bg-stone-50/50">
-              <span className="text-xs text-stone-400">Platform fee (5%)</span>
-              <span className="text-xs text-stone-400">deducted from carrier payout</span>
-            </div>
             <div className="flex items-center justify-between px-4 py-3 bg-forest-50/40">
               <span className="font-display font-700 text-stone-900">Total charged</span>
               <span className="font-display font-800 text-forest-600 text-xl">{fmtBWP(payModal.bid.price)}</span>
             </div>
           </div>
 
-          {/* Escrow / trial note */}
-          {TRIAL_MODE ? (
-            <div className="flex items-start gap-2.5 bg-forest-50 border border-forest-200 rounded-xl px-3.5 py-3 mb-5 text-xs text-forest-800">
-              <CheckCircle size={14} className="flex-shrink-0 mt-0.5 text-forest-500" />
-              <p><span className="font-semibold">Free launch period</span> — no payment is charged today. The carrier will be confirmed and you can track your shipment instantly.</p>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-3 mb-5 text-xs text-amber-800">
-              <AlertCircle size={14} className="flex-shrink-0 mt-0.5 text-amber-500" />
-              <p>Payment is held securely in escrow and only released to the carrier after you confirm delivery.</p>
-            </div>
-          )}
+          <div className="flex items-start gap-2.5 bg-forest-50 border border-forest-200 rounded-xl px-3.5 py-3 mb-5 text-xs text-forest-800">
+            <CheckCircle size={14} className="flex-shrink-0 mt-0.5 text-forest-500" />
+            <p>Once confirmed, the carrier will be notified and you can track your shipment in real time. Settle payment directly with the carrier.</p>
+          </div>
 
           <div className="flex gap-3">
             <button onClick={() => setPayModal(null)}
@@ -963,7 +898,7 @@ export default function ShipperDashboard() {
               onClick={() => { const { load, bid } = payModal; setPayModal(null); setBidsModal(null); initPayment(load, bid) }}
               disabled={acceptingBid === payModal.bid.id}
               className="flex-1 py-3 bg-forest-500 hover:bg-forest-600 disabled:bg-stone-200 disabled:text-stone-400 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2">
-              <CreditCard size={14} /> {acceptingBid === payModal.bid.id ? 'Processing...' : TRIAL_MODE ? 'Confirm Carrier' : 'Confirm & Pay'}
+              <CreditCard size={14} /> {acceptingBid === payModal.bid.id ? 'Processing...' : 'Confirm Carrier'}
             </button>
           </div>
         </div>

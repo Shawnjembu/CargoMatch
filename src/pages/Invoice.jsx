@@ -18,8 +18,7 @@ export default function Invoice() {
         id, reference, status, price, created_at, delivered_at,
         loads(from_location, to_location, cargo_type, weight_kg, description, pickup_date),
         carriers(company_name, reg_number),
-        profiles!shipments_shipper_id_fkey(full_name, phone, location),
-        escrow_transactions(amount, currency, dpo_reference, paid_at, released_at, status)
+        profiles!shipments_shipper_id_fkey(full_name, phone, location)
       `)
       .eq('id', id)
       .single()
@@ -50,15 +49,12 @@ export default function Invoice() {
     )
   }
 
-  const escrow    = data.escrow_transactions
   const load      = data.loads
   const carrier   = data.carriers
   const shipper   = data.profiles
-  const amount    = escrow?.amount ? Number(escrow.amount) : (data.price || 0)
-  const paidDate  = escrow?.paid_at     ? new Date(escrow.paid_at)     : null
-  const relDate   = escrow?.released_at ? new Date(escrow.released_at) : null
-  const issueDate = data.delivered_at   ? new Date(data.delivered_at)  : new Date(data.created_at)
-  const isPaid    = escrow?.status === 'released' || data.status === 'delivered'
+  const amount    = data.price || 0
+  const issueDate = data.delivered_at ? new Date(data.delivered_at) : new Date(data.created_at)
+  const isPaid    = data.status === 'delivered'
 
   const fmt = (d) => d?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) ?? '—'
   const fmtP = (n) => `P ${Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -200,12 +196,10 @@ export default function Invoice() {
             <p className="text-xs font-medium text-stone-400 uppercase tracking-widest mb-3">Payment Details</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
               {[
-                { label: 'Payment Gateway',  value: 'DPO Pay (Network International)' },
-                { label: 'DPO Reference',     value: escrow?.dpo_reference || '—' },
-                { label: 'Payment Date',      value: paidDate ? fmt(paidDate) : '—' },
-                { label: 'Funds Released',    value: relDate  ? fmt(relDate)  : '—' },
-                { label: 'Currency',          value: escrow?.currency || 'BWP' },
-                { label: 'Escrow Status',     value: isPaid ? 'Released ✓' : 'Pending' },
+                { label: 'Payment Method',  value: 'Direct (Shipper ↔ Carrier)' },
+                { label: 'Currency',        value: 'BWP' },
+                { label: 'Delivery Date',   value: data.delivered_at ? fmt(new Date(data.delivered_at)) : '—' },
+                { label: 'Status',          value: isPaid ? 'Delivered ✓' : data.status?.replace('_', ' ') ?? 'In Progress' },
               ].map((r, i) => (
                 <div key={i}>
                   <p className="text-xs text-stone-400">{r.label}</p>

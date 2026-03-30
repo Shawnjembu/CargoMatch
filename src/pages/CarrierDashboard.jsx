@@ -332,13 +332,11 @@ export default function CarrierDashboard() {
             created_at, delivered_at,
             loads(from_location, to_location, cargo_type, weight_kg),
             reviews(id, reviewer_id),
-            profiles!shipments_shipper_id_fkey(full_name),
-            escrow_transactions(status, amount, currency, paid_at, released_at)
+            profiles!shipments_shipper_id_fkey(full_name)
           `).eq('carrier_id', carrier.id).order('created_at', { ascending: false }),
           supabase.from('carrier_routes').select('*').eq('carrier_id', carrier.id),
         ])
         setTrucks(t || [])
-        if (tripError) console.error('Trips error:', tripError)
         setMyTrips(trips || [])
         const reviewed = new Set((trips || []).filter(t => t.reviews?.some(r => r.reviewer_id === user.id)).map(t => t.id))
         setReviewedTripIds(reviewed)
@@ -357,8 +355,6 @@ export default function CarrierDashboard() {
         supabase.from('loads').select('*, profiles!loads_shipper_id_fkey(full_name, phone)').eq('status', 'pending').order('created_at', { ascending: false }),
         supabase.from('load_bids').select('load_id, carrier_user_id').eq('status', 'pending'),
       ])
-      if (loadsError) console.error('Loads error:', loadsError)
-
       // Track which loads this carrier already bid on + bid counts per load
       const bidCountMap = {}
       const myBidSet    = new Set()
@@ -369,8 +365,7 @@ export default function CarrierDashboard() {
       setMyBidIds(myBidSet)
       setAvailableLoads((loads || []).map(l => ({ ...l, _bidCount: bidCountMap[l.id] || 0 })))
 
-    } catch (e) {
-      console.error('fetchData error:', e)
+    } catch {
     } finally {
       setLoading(false)
     }
@@ -433,7 +428,7 @@ export default function CarrierDashboard() {
           recorded_at: new Date().toISOString(),
         }, { onConflict: 'shipment_id' })
       },
-      (err) => { console.error('GPS error:', err.message); setSharingLocation(null) },
+      () => { setSharingLocation(null) },
       { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
     )
   }
@@ -472,7 +467,7 @@ export default function CarrierDashboard() {
         setShowWizard(false)
         fetchData()
       }
-    } catch (e) { console.error(e) }
+    } catch { /* silent */ }
     setSavingWizard(false)
   }
 
@@ -501,7 +496,7 @@ export default function CarrierDashboard() {
       })
       leafletMap.current = map
       setMapReady(true)
-    }).catch(console.error)
+    }).catch(() => {})
   }
 
   // Draw load routes on map
@@ -719,7 +714,6 @@ export default function CarrierDashboard() {
   const totalReleased = earnings
     .filter(e => e.status === 'released')
     .reduce((s, e) => s + Number(e.amount || 0), 0)
-  const totalInEscrow = 0 // escrow phase removed; earnings recorded on delivery
   const activeTrips     = myTrips.filter(t => ['confirmed','picked_up','in_transit'].includes(t.status))
   const avgRating     = carrierInfo?.rating || 0
 
@@ -1113,16 +1107,6 @@ export default function CarrierDashboard() {
                               }`}>
                               <Navigation size={10} /> {sharingLocation === t.id ? 'Stop GPS' : 'Share GPS'}
                             </button>
-                          )}
-                          {/* Escrow badge */}
-                          {t.escrow_transactions && (
-                            <span className={`mt-1 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                              t.escrow_transactions.status === 'released'
-                                ? 'bg-forest-50 text-forest-700 border border-forest-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}>
-                              {t.escrow_transactions.status === 'released' ? '✓ Paid' : '⏳ In Escrow'} · P {Number(t.escrow_transactions.amount).toLocaleString()}
-                            </span>
                           )}
                           {t.status === 'delivered' && !reviewedTripIds.has(t.id) && t.shipper_id && (
                             <button onClick={() => { setShipperRating(0); setShipperRatingHover(0); setShipperComment(''); setShipperReviewModal({ shipmentId: t.id, shipperId: t.shipper_id, shipperName: t.profiles?.full_name }) }}

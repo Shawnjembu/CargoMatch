@@ -62,12 +62,11 @@ export default function Messages() {
           id, reference, status, shipper_id, carrier_id, price,
           loads(from_location, to_location, cargo_type, weight_kg),
           shipper:profiles!shipments_shipper_id_fkey(id, full_name),
-          carrier:carriers(id, company_name, user_id),
-          escrow_transactions(status, amount)
+          carrier:carriers(id, company_name, user_id)
         `)
         .or(orFilter)
 
-      if (error) { console.error('Shipments error:', error); setLoading(false); return }
+      if (error) { setLoading(false); return }
       if (!shipments?.length) { setConvos([]); setLoading(false); return }
 
       const enriched = await Promise.all(shipments.map(async s => {
@@ -97,7 +96,6 @@ export default function Messages() {
           price:        s.price,
           route:        `${s.loads?.from_location || ''} → ${s.loads?.to_location || ''}`,
           cargo:        s.loads ? `${s.loads.cargo_type} · ${s.loads.weight_kg}kg` : null,
-          escrow:       s.escrow_transactions,
           avatar:       otherName?.[0]?.toUpperCase() || '?',
           avatarColor:  isShipper ? 'bg-blue-100 text-blue-700' : 'bg-forest-100 text-forest-700',
           lastMessage:  last?.body || 'No messages yet',
@@ -118,8 +116,7 @@ export default function Messages() {
       const filtered = enriched.filter(Boolean)
       setConvos(filtered)
       if (!activeId && filtered.length) setActiveId(filtered[0].id)
-    } catch (e) {
-      console.error('fetchConversations error:', e)
+    } catch {
     } finally {
       setLoading(false)
     }
@@ -264,7 +261,7 @@ export default function Messages() {
                 </div>
               </div>
               {/* Load context banner */}
-              {(active.cargo || active.price || active.escrow) && (
+              {(active.cargo || active.price) && (
                 <div className="px-6 pb-3 flex items-center gap-4 flex-wrap">
                   {active.cargo && (
                     <span className="flex items-center gap-1 text-xs text-stone-500 bg-stone-50 border border-stone-100 px-2.5 py-1 rounded-lg">
@@ -274,15 +271,6 @@ export default function Messages() {
                   {active.price > 0 && (
                     <span className="text-xs text-stone-500 bg-stone-50 border border-stone-100 px-2.5 py-1 rounded-lg">
                       P {Number(active.price).toLocaleString()}
-                    </span>
-                  )}
-                  {active.escrow && (
-                    <span className={`text-xs px-2.5 py-1 rounded-lg font-medium ${
-                      active.escrow.status === 'released'
-                        ? 'bg-forest-50 text-forest-700 border border-forest-200'
-                        : 'bg-amber-50 text-amber-700 border border-amber-200'
-                    }`}>
-                      {active.escrow.status === 'released' ? '✓ Payment released' : '⏳ Escrow held'}
                     </span>
                   )}
                 </div>
