@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext'
 import {
   Users, Truck, Package, DollarSign, CheckCircle, Clock,
   TrendingUp, Shield, ShieldCheck, ShieldX, Search,
-  RefreshCw, MapPin, Star, ArrowRight, Eye, BarChart3
+  RefreshCw, MapPin, Star, ArrowRight, Eye, BarChart3,
+  AlertTriangle, ChevronRight, X
 } from 'lucide-react'
 import CountUp from '../components/CountUp'
 
@@ -61,6 +62,11 @@ export default function AdminDashboard() {
   const [shipmentsSearch,   setShipmentsSearch]   = useState('')
   const [shipmentsStatus,   setShipmentsStatus]   = useState('all')
   const [verifying,         setVerifying]         = useState(null)
+  const [disputes,          setDisputes]          = useState([])
+  const [disputesSearch,    setDisputesSearch]    = useState('')
+  const [selectedDispute,   setSelectedDispute]   = useState(null) // dispute for detail panel
+  const [resolutionNote,    setResolutionNote]    = useState('')
+  const [updatingDispute,   setUpdatingDispute]   = useState(null)
 
   useEffect(() => {
     if (user) fetchAll()
@@ -68,7 +74,7 @@ export default function AdminDashboard() {
 
   const fetchAll = async () => {
     setLoading(true)
-    await Promise.all([fetchStats(), fetchUsers(), fetchCarriers(), fetchShipments(), fetchLoads()])
+    await Promise.all([fetchStats(), fetchUsers(), fetchCarriers(), fetchShipments(), fetchLoads(), fetchDisputes()])
     setLoading(false)
   }
 
@@ -140,6 +146,57 @@ export default function AdminDashboard() {
     setShipments(data || [])
   }
 
+  const fetchDisputes = async () => {
+    const { data } = await supabase
+      .from('disputes')
+      .select(`
+        id, reason, details, status, created_at, resolved_at, resolution_note,
+        shipment_id,
+        shipments(reference, shipper_id, carrier_id,
+          profiles!shipments_shipper_id_fkey(full_name),
+          carriers(company_name, user_id)
+        ),
+        profiles!disputes_raised_by_fkey(full_name, role)
+      `)
+      .order('created_at', { ascending: false })
+    setDisputes(data || [])
+  }
+
+  const updateDisputeStatus = async (disputeId, newStatus, note) => {
+    setUpdatingDispute(disputeId)
+    const updates = {
+      status:      newStatus,
+      resolution_note: note || null,
+      ...(newStatus === 'resolved' || newStatus === 'dismissed' ? { resolved_at: new Date().toISOString() } : {}),
+    }
+    const { error } = await supabase.from('disputes').update(updates).eq('id', disputeId)
+    if (!error) {
+      // Notify both parties
+      const dispute = disputes.find(d => d.id === disputeId)
+      if (dispute?.shipments) {
+        const notifBody = `Dispute on shipment ${dispute.shipments.reference} is now: ${newStatus.replace('_', ' ')}${note ? ` — "${note}"` : ''}`
+        const toNotify = [
+          dispute.shipments.shipper_id,
+          dispute.shipments.carriers?.user_id,
+        ].filter(Boolean)
+        if (toNotify.length > 0) {
+          await supabase.from('notifications').insert(
+            toNotify.map(uid => ({
+              user_id: uid,
+              type:    'alert',
+              title:   'Dispute status updated',
+              body:    notifBody,
+              link:    uid === dispute.shipments.shipper_id ? '/shipper' : '/carrier',
+            }))
+          )
+        }
+      }
+      setDisputes(ds => ds.map(d => d.id === disputeId ? { ...d, ...updates } : d))
+      if (selectedDispute?.id === disputeId) setSelectedDispute(d => ({ ...d, ...updates }))
+    }
+    setUpdatingDispute(null)
+  }
+
   const fetchLoads = async () => {
     const { data } = await supabase
       .from('loads')
@@ -185,12 +242,15 @@ export default function AdminDashboard() {
     return matchQ && matchStatus
   })
 
+  const openDisputes = disputes.filter(d => d.status === 'open' || d.status === 'under_review').length
+
   const TABS = [
     { id: 'overview',  label: '📊 Overview' },
     { id: 'users',     label: '👥 Users',     badge: stats.totalUsers },
     { id: 'carriers',  label: '🚛 Carriers',  badge: stats.totalCarriers },
     { id: 'shipments', label: '📦 Shipments', badge: stats.totalShipments },
     { id: 'loads',     label: '📋 Loads',     badge: stats.pendingLoads },
+    { id: 'disputes',  label: '⚠️ Disputes',  badge: openDisputes },
   ]
 
   return (
@@ -569,6 +629,148 @@ export default function AdminDashboard() {
             )}
           </div>
         )}
+
+        {/* ── DISPUTES ─────────────────────────────────────────── */}
+        {tab === 'disputes' && (() => {
+          const DISPUTE_COLORS = {
+            open:         'bg-rose-50 text-rose-700 border-rose-200',
+            under_review: 'bg-amber-50 text-amber-700 border-amber-200',
+            resolved:     'bg-forest-50 text-forest-700 border-forest-200',
+            dismissed:    'bg-stone-100 text-stone-500 border-stone-200',
+          }
+          const filtered = disputes.filter(d => {
+            const q = disputesSearch.toLowerCase()
+            return !q
+              || d.shipments?.reference?.toLowerCase().includes(q)
+              || d.reason?.toLowerCase().includes(q)
+              || d.profiles?.full_name?.toLowerCase().includes(q)
+          })
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* List */}
+              <div className={`bg-white rounded-2xl border border-stone-100 overflow-hidden ${selectedDispute ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100 gap-3">
+                  <h2 className="font-display font-700 text-stone-900 flex items-center gap-2">
+                    <AlertTriangle size={16} className="text-amber-500" /> Disputes
+                    {openDisputes > 0 && (
+                      <span className="text-xs bg-rose-500 text-white px-2 py-0.5 rounded-full font-medium">{openDisputes} open</span>
+                    )}
+                  </h2>
+                  <div className="relative flex-1 max-w-xs">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                    <input value={disputesSearch} onChange={e => setDisputesSearch(e.target.value)}
+                      placeholder="Search reference, reason, name…"
+                      className="w-full pl-8 pr-3 py-2 text-xs border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-300" />
+                  </div>
+                </div>
+                {loading ? <SkeletonRows cols={3} rows={5} /> : filtered.length === 0 ? (
+                  <div className="p-12 text-center text-stone-400 text-sm">
+                    <AlertTriangle size={28} className="mx-auto mb-3 text-stone-300" />
+                    {disputesSearch ? 'No disputes match your search.' : 'No disputes yet.'}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-stone-50">
+                    {filtered.map(d => (
+                      <button key={d.id} onClick={() => { setSelectedDispute(d); setResolutionNote(d.resolution_note || '') }}
+                        className={`w-full flex items-center gap-4 px-6 py-4 hover:bg-stone-50 transition-colors text-left ${selectedDispute?.id === d.id ? 'bg-forest-50/40' : ''}`}>
+                        <div className="w-9 h-9 bg-amber-50 border border-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                          <AlertTriangle size={15} className="text-amber-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-sm font-700 text-stone-900">{d.shipments?.reference || '—'}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${DISPUTE_COLORS[d.status] || ''}`}>
+                              {d.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-stone-600 truncate">{d.reason}</p>
+                          <p className="text-xs text-stone-400 mt-0.5">
+                            Raised by {d.profiles?.full_name || '—'} ({d.profiles?.role || '—'}) ·{' '}
+                            {new Date(d.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <ChevronRight size={14} className="text-stone-300 flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Detail panel */}
+              {selectedDispute && (
+                <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden h-fit">
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100">
+                    <h3 className="font-display font-700 text-stone-900 text-sm">Dispute Detail</h3>
+                    <button onClick={() => setSelectedDispute(null)} className="p-1 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100">
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    <div>
+                      <p className="text-xs text-stone-400 mb-1">Shipment</p>
+                      <p className="text-sm font-700 text-stone-900">{selectedDispute.shipments?.reference}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-stone-400 mb-1">Raised by</p>
+                      <p className="text-sm text-stone-800">
+                        {selectedDispute.profiles?.full_name} <span className="text-stone-400">({selectedDispute.profiles?.role})</span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-stone-400 mb-1">Reason</p>
+                      <p className="text-sm text-stone-800">{selectedDispute.reason}</p>
+                    </div>
+                    {selectedDispute.details && (
+                      <div>
+                        <p className="text-xs text-stone-400 mb-1">Details</p>
+                        <p className="text-sm text-stone-600 leading-relaxed">{selectedDispute.details}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-stone-400 mb-1">Date raised</p>
+                      <p className="text-sm text-stone-600">{new Date(selectedDispute.created_at).toLocaleString()}</p>
+                    </div>
+                    {selectedDispute.resolved_at && (
+                      <div>
+                        <p className="text-xs text-stone-400 mb-1">Resolved at</p>
+                        <p className="text-sm text-stone-600">{new Date(selectedDispute.resolved_at).toLocaleString()}</p>
+                      </div>
+                    )}
+
+                    <div className="pt-3 border-t border-stone-100 space-y-3">
+                      <p className="text-xs font-medium text-stone-600">Update Status</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { s: 'under_review', label: 'Under Review', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
+                          { s: 'resolved',     label: 'Resolved',     color: 'bg-forest-50 text-forest-700 border-forest-200 hover:bg-forest-100' },
+                          { s: 'dismissed',    label: 'Dismissed',    color: 'bg-stone-100 text-stone-600 border-stone-200 hover:bg-stone-200' },
+                          { s: 'open',         label: 'Re-open',      color: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' },
+                        ].map(({ s, label, color }) => (
+                          <button key={s}
+                            disabled={selectedDispute.status === s || updatingDispute === selectedDispute.id}
+                            onClick={() => updateDisputeStatus(selectedDispute.id, s, resolutionNote)}
+                            className={`text-xs font-medium py-2 rounded-xl border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${color}`}>
+                            {updatingDispute === selectedDispute.id ? '…' : label}
+                          </button>
+                        ))}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1.5">Resolution note (optional)</label>
+                        <textarea
+                          value={resolutionNote}
+                          onChange={e => setResolutionNote(e.target.value)}
+                          rows={3}
+                          placeholder="Add a note for both parties…"
+                          className="w-full px-3 py-2 text-xs border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-forest-300 resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
       </div>
     </div>

@@ -4,12 +4,13 @@ import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import AuthModal from '../components/AuthModal'
+import DisputeModal from '../components/DisputeModal'
 import { fmtBWP } from '../lib/rates'
 import CountUp from '../components/CountUp'
 import {
   Package, MapPin, CheckCircle, Truck, Plus, TrendingDown,
   Star, AlertCircle, ArrowRight, LogIn, Bell,
-  MessageSquare, Navigation, RefreshCw, X, Send, Gavel, CreditCard
+  MessageSquare, Navigation, RefreshCw, X, Send, Gavel, CreditCard, AlertTriangle
 } from 'lucide-react'
 
 const CITIES = {
@@ -72,6 +73,8 @@ export default function ShipperDashboard() {
   const [payModal,     setPayModal]     = useState(null)  // { load, bid } — confirmation step
   const pickupWatcher = useRef(null)
   const [sharingPickup, setSharingPickup] = useState(null) // shipment_id whose pickup location is being broadcast
+  const [disputes,      setDisputes]      = useState({})   // shipment_id -> dispute row
+  const [disputeModal,  setDisputeModal]  = useState(null) // { shipmentId, shipmentRef, otherPartyId }
 
   useEffect(() => {
     if (!user) return
@@ -99,7 +102,7 @@ export default function ShipperDashboard() {
     if (!user) return
     setLoading(true)
     const [{ data: sData }, { data: lData }, { data: nData }, { data: mData }] = await Promise.all([
-      supabase.from('shipments').select('id, reference, status, price, progress_pct, shipper_id, carrier_id, pickup_lat, pickup_lng, pickup_shared_at, created_at, loads(cargo_type, weight_kg, from_location, to_location, image_url), carriers(company_name, user_id), reviews(id, reviewer_id)')
+      supabase.from('shipments').select('id, reference, status, price, progress_pct, shipper_id, carrier_id, pickup_lat, pickup_lng, pickup_shared_at, created_at, delivered_at, loads(cargo_type, weight_kg, from_location, to_location, image_url), carriers(company_name, user_id), reviews(id, reviewer_id)')
         .eq('shipper_id', user.id).order('created_at', { ascending: false }),
       supabase.from('loads').select('*').eq('shipper_id', user.id).eq('status', 'pending').order('created_at', { ascending: false }),
       supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
@@ -127,6 +130,15 @@ export default function ShipperDashboard() {
     setReviewedIds(reviewed)
     setUnreadNotifs((nData || []).filter(n => !n.read).length)
     setUnreadMsgs((mData || []).length)
+    // Fetch disputes for all shipments
+    const shipmentIds = (sData || []).map(s => s.id)
+    if (shipmentIds.length > 0) {
+      const { data: dData } = await supabase
+        .from('disputes').select('*').in('shipment_id', shipmentIds).eq('raised_by', user.id)
+      const dMap = {}
+      ;(dData || []).forEach(d => { dMap[d.shipment_id] = d })
+      setDisputes(dMap)
+    }
     setLoading(false)
   }
 
@@ -398,7 +410,7 @@ export default function ShipperDashboard() {
 
   const allRows = [
     ...loads.map(l => ({ _type: 'load', id: l.id, reference: l.id.slice(0,8).toUpperCase(), from_location: l.from_location, to_location: l.to_location, status: 'pending', price: l.price_estimate || 0, progress_pct: 0, cargo: `${l.cargo_type} (${l.weight_kg}kg)`, carrier: null, eta: '—', image_url: l.image_url })),
-    ...shipments.map(s => ({ _type: 'shipment', id: s.id, reference: s.reference || s.id.slice(0,8).toUpperCase(), from_location: s.loads?.from_location || '—', to_location: s.loads?.to_location || '—', status: s.status, price: s.price || 0, progress_pct: s.progress_pct || 0, cargo: s.loads ? `${s.loads.cargo_type} (${s.loads.weight_kg}kg)` : '—', carrier: s.carriers?.company_name, carrier_user_id: s.carriers?.user_id, eta: s.eta ? new Date(s.eta).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '—', image_url: s.loads?.image_url, shipment_id: s.id, carrier_id: s.carrier_id, pickup_lat: s.pickup_lat, pickup_lng: s.pickup_lng, pickup_shared_at: s.pickup_shared_at, has_review: reviewedIds.has(s.id) })),
+    ...shipments.map(s => ({ _type: 'shipment', id: s.id, reference: s.reference || s.id.slice(0,8).toUpperCase(), from_location: s.loads?.from_location || '—', to_location: s.loads?.to_location || '—', status: s.status, price: s.price || 0, progress_pct: s.progress_pct || 0, cargo: s.loads ? `${s.loads.cargo_type} (${s.loads.weight_kg}kg)` : '—', carrier: s.carriers?.company_name, carrier_user_id: s.carriers?.user_id, eta: s.eta ? new Date(s.eta).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '—', image_url: s.loads?.image_url, shipment_id: s.id, carrier_id: s.carrier_id, pickup_lat: s.pickup_lat, pickup_lng: s.pickup_lng, pickup_shared_at: s.pickup_shared_at, has_review: reviewedIds.has(s.id), delivered_at: s.delivered_at })),
   ]
 
   const active    = allRows.filter(r => ['in_transit','picked_up','confirmed','matched'].includes(r.status)).length
@@ -595,6 +607,24 @@ export default function ShipperDashboard() {
                               🧾 Invoice
                             </Link>
                           )}
+                          {/* Dispute — 48hr window after delivery */}
+                          {s._type === 'shipment' && s.status === 'delivered' && (() => {
+                            const within48h = s.delivered_at && (Date.now() - new Date(s.delivered_at).getTime()) < 48 * 60 * 60 * 1000
+                            const existing  = disputes[s.shipment_id]
+                            if (existing) return (
+                              <span className="flex items-center gap-1 text-xs text-amber-600 mt-1 font-medium">
+                                <AlertTriangle size={10} /> Dispute {existing.status.replace('_',' ')}
+                              </span>
+                            )
+                            if (within48h) return (
+                              <button
+                                onClick={() => setDisputeModal({ shipmentId: s.shipment_id, shipmentRef: s.reference, otherPartyId: s.carrier_user_id })}
+                                className="flex items-center gap-1 text-xs text-stone-400 hover:text-amber-600 transition-colors mt-1">
+                                <AlertTriangle size={10} /> Raise Dispute
+                              </button>
+                            )
+                            return null
+                          })()}
                           {s._type === 'shipment' && s.carrier_id && (
                             <Link to={`/carrier/${s.carrier_id}`} className="block text-xs text-forest-600 hover:underline">
                               View Profile →
@@ -910,6 +940,15 @@ export default function ShipperDashboard() {
           </div>
         </div>
       </div>
+    )}
+    {disputeModal && (
+      <DisputeModal
+        shipmentId={disputeModal.shipmentId}
+        shipmentRef={disputeModal.shipmentRef}
+        otherPartyId={disputeModal.otherPartyId}
+        onClose={() => setDisputeModal(null)}
+        onDisputeRaised={(dispute) => setDisputes(prev => ({ ...prev, [dispute.shipment_id]: dispute }))}
+      />
     )}
     </>
   )

@@ -10,11 +10,12 @@ import TrialBanner from '../components/TrialBanner'
 import UpgradeModal from '../components/UpgradeModal'
 import LocationInput from '../components/LocationInput'
 import { useUserLocation } from '../hooks/useUserLocation'
+import DisputeModal from '../components/DisputeModal'
 import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
   Navigation, X, Play, RefreshCw, Search, Send,
-  Gavel, Info, CreditCard, Lock, Globe
+  Gavel, Info, CreditCard, Lock, Globe, AlertTriangle
 } from 'lucide-react'
 
 // ── Adjacent cities map (within ~50km) ──────────────────────
@@ -235,6 +236,8 @@ export default function CarrierDashboard() {
   const [shipperComment,     setShipperComment]     = useState('')
   const [submittingReview,   setSubmittingReview]   = useState(false)
   const [reviewedTripIds,    setReviewedTripIds]    = useState(new Set())
+  const [tripDisputes,       setTripDisputes]       = useState({})   // shipment_id -> dispute row
+  const [disputeModal,       setDisputeModal]       = useState(null) // { shipmentId, shipmentRef, otherPartyId }
   const [showPostTrip,  setShowPostTrip]   = useState(false)
   const [tripForm,       setTripForm]       = useState({ from: '', to: '', date: '', price: '', notes: '' })
   const [savingTrip,     setSavingTrip]     = useState(false)
@@ -341,6 +344,15 @@ export default function CarrierDashboard() {
         const reviewed = new Set((trips || []).filter(t => t.reviews?.some(r => r.reviewer_id === user.id)).map(t => t.id))
         setReviewedTripIds(reviewed)
         setCarrierRoutes(routes || [])
+        // Fetch disputes raised by this carrier on their trips
+        const tripIds = (trips || []).map(t => t.id)
+        if (tripIds.length > 0) {
+          const { data: dData } = await supabase
+            .from('disputes').select('*').in('shipment_id', tripIds).eq('raised_by', user.id)
+          const dMap = {}
+          ;(dData || []).forEach(d => { dMap[d.shipment_id] = d })
+          setTripDisputes(dMap)
+        }
 
         // Fetch real earnings from carrier_earnings table
         const { data: earningsData } = await supabase
@@ -1129,6 +1141,24 @@ export default function CarrierDashboard() {
                               <CheckCircle size={10} /> Reviewed
                             </span>
                           )}
+                          {/* Dispute — 48hr window after delivery */}
+                          {t.status === 'delivered' && (() => {
+                            const within48h = t.delivered_at && (Date.now() - new Date(t.delivered_at).getTime()) < 48 * 60 * 60 * 1000
+                            const existing  = tripDisputes[t.id]
+                            if (existing) return (
+                              <span className="mt-2 flex items-center gap-1 text-xs text-amber-600 font-medium">
+                                <AlertTriangle size={10} /> Dispute {existing.status.replace('_',' ')}
+                              </span>
+                            )
+                            if (within48h) return (
+                              <button
+                                onClick={() => setDisputeModal({ shipmentId: t.id, shipmentRef: t.reference, otherPartyId: t.shipper_id })}
+                                className="mt-2 flex items-center gap-1 text-xs text-stone-400 hover:text-amber-600 transition-colors">
+                                <AlertTriangle size={10} /> Raise Dispute
+                              </button>
+                            )
+                            return null
+                          })()}
                           <Link to={`/track/${t.reference}`} className="block mt-1 text-xs text-forest-600 hover:underline">Track</Link>
                         </div>
                       </div>
@@ -1733,6 +1763,15 @@ export default function CarrierDashboard() {
           </div>
         </div>
       </div>
+    )}
+    {disputeModal && (
+      <DisputeModal
+        shipmentId={disputeModal.shipmentId}
+        shipmentRef={disputeModal.shipmentRef}
+        otherPartyId={disputeModal.otherPartyId}
+        onClose={() => setDisputeModal(null)}
+        onDisputeRaised={(dispute) => setTripDisputes(prev => ({ ...prev, [dispute.shipment_id]: dispute }))}
+      />
     )}
     </>
   )

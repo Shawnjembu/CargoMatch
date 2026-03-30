@@ -55,10 +55,25 @@ export function AuthProvider({ children }) {
     if (error) throw error
 
     if (data.user) {
-      // Auto-create profile for manually created Supabase users
+      // KNOWN GOTCHA: Users created manually via the Supabase console (e.g. test
+      // accounts, admin users) bypass the DB trigger that normally creates a
+      // profiles row on signup.  On their very first sign-in we detect the missing
+      // row and auto-insert a stub profile defaulting to role='shipper'.
+      //
+      // ⚠️  If you manually created a carrier or admin account in the Supabase
+      // dashboard you MUST update that user's role (and is_admin flag) afterwards
+      // — either via the Supabase table editor or the Admin Panel → Users tab.
+      // There is currently no in-app role-override UI for admins (tracked gap).
       const { data: existing } = await supabase
         .from('profiles').select('id').eq('id', data.user.id).single()
       if (!existing) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[CargoMatch] Auto-created stub profile for manually-created user:',
+            data.user.email,
+            '— role defaulted to "shipper". Update via Supabase table editor if needed.'
+          )
+        }
         await supabase.from('profiles').upsert({
           id:        data.user.id,
           full_name: data.user.email.split('@')[0],
