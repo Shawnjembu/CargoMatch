@@ -409,6 +409,16 @@ export default function CarrierDashboard() {
     return () => { if (locationWatcher.current) navigator.geolocation.clearWatch(locationWatcher.current) }
   }, [])
 
+  // Auto-stop GPS if the active trip is delivered or cancelled
+  useEffect(() => {
+    if (!sharingLocation) return
+    const trip = myTrips.find(t => t.id === sharingLocation)
+    if (!trip || ['delivered', 'cancelled'].includes(trip.status)) {
+      navigator.geolocation.clearWatch(locationWatcher.current)
+      setSharingLocation(null)
+    }
+  }, [myTrips, sharingLocation])
+
   const toggleLocationSharing = (shipmentId) => {
     if (sharingLocation === shipmentId) {
       navigator.geolocation.clearWatch(locationWatcher.current)

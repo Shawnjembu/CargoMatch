@@ -22,6 +22,11 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
     if (!form.email || !form.password) { setError('Please fill in email and password.'); return }
     if (mode === 'signup' && !form.full_name) { setError('Please enter your full name.'); return }
     if (mode === 'signup' && form.password.length < 6) { setError('Password must be at least 6 characters.'); return }
+    if (mode === 'signup' && form.phone) {
+      const digits = form.phone.replace(/\D/g, '')
+      const valid = /^(\+267|267)?[7][1-9]\d{6}$/.test(form.phone.replace(/\s/g, '')) || digits.length === 8
+      if (!valid) { setError('Enter a valid Botswana number — e.g. +267 71 234 567'); return }
+    }
 
     setLoading(true)
     try {

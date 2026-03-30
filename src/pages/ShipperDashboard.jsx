@@ -389,6 +389,13 @@ export default function ShipperDashboard() {
     if (pickupWatcher.current != null) navigator.geolocation.clearWatch(pickupWatcher.current)
   }, [])
 
+  // Auto-stop GPS if the active shipment is delivered or cancelled
+  useEffect(() => {
+    if (!sharingPickup) return
+    const s = shipments.find(x => x.id === sharingPickup)
+    if (!s || ['delivered', 'cancelled'].includes(s.status)) stopSharingPickup()
+  }, [shipments, sharingPickup])
+
   const allRows = [
     ...loads.map(l => ({ _type: 'load', id: l.id, reference: l.id.slice(0,8).toUpperCase(), from_location: l.from_location, to_location: l.to_location, status: 'pending', price: l.price_estimate || 0, progress_pct: 0, cargo: `${l.cargo_type} (${l.weight_kg}kg)`, carrier: null, eta: '—', image_url: l.image_url })),
     ...shipments.map(s => ({ _type: 'shipment', id: s.id, reference: s.reference || s.id.slice(0,8).toUpperCase(), from_location: s.loads?.from_location || '—', to_location: s.loads?.to_location || '—', status: s.status, price: s.price || 0, progress_pct: s.progress_pct || 0, cargo: s.loads ? `${s.loads.cargo_type} (${s.loads.weight_kg}kg)` : '—', carrier: s.carriers?.company_name, carrier_user_id: s.carriers?.user_id, eta: s.eta ? new Date(s.eta).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '—', image_url: s.loads?.image_url, shipment_id: s.id, carrier_id: s.carrier_id, pickup_lat: s.pickup_lat, pickup_lng: s.pickup_lng, pickup_shared_at: s.pickup_shared_at, has_review: reviewedIds.has(s.id) })),

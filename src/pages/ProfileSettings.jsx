@@ -364,7 +364,16 @@ export default function ProfileSettings() {
 
               {/* Document uploads */}
               <div className="pt-4 border-t border-stone-100 space-y-3">
-                <p className="text-xs font-medium text-stone-600">Compliance Documents</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-stone-600">Compliance Documents</p>
+                  {carrierInfo?.verified ? (
+                    <span className="inline-flex items-center gap-1 text-xs bg-forest-50 text-forest-700 border border-forest-200 px-2 py-0.5 rounded-full font-medium">✓ Verified</span>
+                  ) : (carrierInfo?.license_url || carrierInfo?.insurance_url) ? (
+                    <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">⏳ Pending review</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full font-medium">Not submitted</span>
+                  )}
+                </div>
                 {[
                   { key: 'license',   label: 'Operator Licence',       field: 'license_url' },
                   { key: 'insurance', label: 'Insurance Certificate',   field: 'insurance_url' },
@@ -374,7 +383,7 @@ export default function ProfileSettings() {
                       <p className="text-sm font-medium text-stone-800">{doc.label}</p>
                       {carrierInfo?.[doc.field] ? (
                         <a href={carrierInfo[doc.field]} target="_blank" rel="noreferrer"
-                          className="text-xs text-forest-600 hover:underline">View uploaded document</a>
+                          className="text-xs text-forest-600 hover:underline">View uploaded document ↗</a>
                       ) : (
                         <p className="text-xs text-stone-400">Not uploaded yet</p>
                       )}
@@ -391,6 +400,9 @@ export default function ProfileSettings() {
                     </label>
                   </div>
                 ))}
+                {!carrierInfo?.verified && (carrierInfo?.license_url || carrierInfo?.insurance_url) && (
+                  <p className="text-xs text-stone-400 pt-1">Documents submitted. An admin will review and verify your account shortly.</p>
+                )}
               </div>
             </div>
 
