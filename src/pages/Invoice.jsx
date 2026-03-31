@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Truck, MapPin, ArrowRight, Printer, ChevronLeft, CheckCircle, AlertCircle } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { Truck, MapPin, ArrowRight, Printer, ChevronLeft, CheckCircle, AlertCircle, Download } from 'lucide-react'
+
+const PRINT_STYLES = `
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; }
+  .print-container { margin: 0 !important; padding: 0 !important; max-width: 100% !important; }
+  #invoice-doc { border: none !important; box-shadow: none !important; border-radius: 0 !important; }
+}
+`
 
 export default function Invoice() {
-  const { id } = useParams()
+  const { id }      = useParams()
+  const navigate    = useNavigate()
+  const { profile } = useAuth()
   const [data,     setData]     = useState(null)
   const [loading,  setLoading]  = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -28,6 +40,8 @@ export default function Invoice() {
     setLoading(false)
   }
 
+  const backTo = profile?.role === 'carrier' ? '/carrier' : '/shipper'
+
   if (loading) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400 text-sm font-body">
@@ -43,7 +57,7 @@ export default function Invoice() {
           <AlertCircle size={36} className="text-stone-300 mx-auto mb-4" />
           <h1 className="font-display text-xl font-800 text-stone-900 mb-2">Invoice not found</h1>
           <p className="text-stone-400 text-sm mb-6">This shipment doesn't exist or you don't have access.</p>
-          <Link to="/shipper" className="text-sm text-forest-600 hover:underline">← Back to Dashboard</Link>
+          <Link to={backTo} className="text-sm text-forest-600 hover:underline">← Back to Dashboard</Link>
         </div>
       </div>
     )
@@ -61,17 +75,21 @@ export default function Invoice() {
 
   return (
     <div className="min-h-screen bg-stone-100 font-body">
+      <style>{PRINT_STYLES}</style>
 
       {/* Toolbar — hidden on print */}
       <div className="no-print bg-white border-b border-stone-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-        <Link to="/shipper" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-800 transition-colors">
+        <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-800 transition-colors">
           <ChevronLeft size={14} /> Back to Dashboard
         </Link>
-        <button
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 bg-forest-500 hover:bg-forest-600 text-white text-sm font-medium px-5 py-2 rounded-xl transition-all">
-          <Printer size={14} /> Print / Save PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-stone-400 hidden sm:block">Save as PDF: Print → Destination → Save as PDF</p>
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 bg-forest-500 hover:bg-forest-600 text-white text-sm font-medium px-5 py-2 rounded-xl transition-all">
+            <Printer size={14} /> Print / Save PDF
+          </button>
+        </div>
       </div>
 
       {/* Invoice document */}
@@ -173,22 +191,23 @@ export default function Invoice() {
                     <p className="font-medium text-stone-900">Freight Service</p>
                     <p className="text-xs text-stone-400 mt-0.5">{load?.from_location} → {load?.to_location} · {load?.cargo_type}</p>
                   </td>
-                  <td className="py-3 text-right font-display font-700 text-stone-900">{fmtP(amount)}</td>
+                  <td className="py-3 text-right font-display font-700 text-stone-900">{fmtP(amount * (1 / 1.05))}</td>
                 </tr>
                 <tr>
                   <td className="py-3 text-stone-400 text-xs">Platform fee (5%)</td>
-                  <td className="py-3 text-right text-xs text-stone-400">{fmtP(amount * 0.05)}</td>
+                  <td className="py-3 text-right text-xs text-stone-400">{fmtP(amount * 0.05 / 1.05)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           {/* Total */}
-          <div className="px-8 py-5 border-b border-stone-100">
-            <div className="flex items-center justify-between">
+          <div className="px-8 py-5 border-b border-stone-100 bg-stone-50/40">
+            <div className="flex items-center justify-between mb-1">
               <span className="font-display font-700 text-stone-900 text-lg">Total Paid</span>
               <span className="font-display font-800 text-forest-600 text-2xl">{fmtP(amount)}</span>
             </div>
+            <p className="text-xs text-stone-400 text-right">Platform fee included in total</p>
           </div>
 
           {/* Payment info */}

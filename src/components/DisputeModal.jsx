@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, AlertTriangle, Send } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { emailDisputeRaised } from '../lib/emailNotify'
 
 const REASONS = [
   'Cargo damaged in transit',
@@ -51,7 +52,7 @@ export default function DisputeModal({ shipmentId, shipmentRef, otherPartyId, on
 
       if (insertErr) throw insertErr
 
-      // Notify the other party
+      // Notify the other party (in-app + email)
       if (otherPartyId) {
         await supabase.from('notifications').insert({
           user_id: otherPartyId,
@@ -59,6 +60,13 @@ export default function DisputeModal({ shipmentId, shipmentRef, otherPartyId, on
           title:   'Dispute raised on your shipment',
           body:    `A dispute has been raised on shipment ${shipmentRef}: "${reason}"`,
           link:    '/shipper',
+        })
+        // Fire-and-forget email — never blocks the modal close
+        emailDisputeRaised({
+          userId:     otherPartyId,
+          shipmentRef,
+          reason,
+          raisedBy:   user.email ?? 'the other party',
         })
       }
 

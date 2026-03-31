@@ -10,6 +10,7 @@ import {
   AlertTriangle, ChevronRight, X
 } from 'lucide-react'
 import CountUp from '../components/CountUp'
+import { emailDisputeUpdated } from '../lib/emailNotify'
 
 const STATUS_COLORS = {
   confirmed: 'bg-purple-50 text-purple-700',
@@ -194,6 +195,13 @@ export default function AdminDashboard() {
               link:    uid === dispute.shipments.shipper_id ? '/shipper' : '/carrier',
             }))
           )
+          // Fire-and-forget emails to both parties
+          toNotify.forEach(uid => emailDisputeUpdated({
+            userId:      uid,
+            shipmentRef: dispute.shipments.reference,
+            newStatus,
+            note,
+          }))
         }
       }
       setDisputes(ds => ds.map(d => d.id === disputeId ? { ...d, ...updates } : d))

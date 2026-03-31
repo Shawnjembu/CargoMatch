@@ -15,7 +15,7 @@ import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
   Navigation, X, Play, RefreshCw, Search, Send,
-  Gavel, Info, CreditCard, Lock, Globe, AlertTriangle
+  Gavel, Info, CreditCard, Lock, Globe, AlertTriangle, Download
 } from 'lucide-react'
 
 // ── Adjacent cities map (within ~50km) ──────────────────────
@@ -254,6 +254,9 @@ export default function CarrierDashboard() {
   const [loadsUrgent,    setLoadsUrgent]    = useState(false)
   const [loadsPooled,    setLoadsPooled]    = useState(false)
   const [loadsSort,      setLoadsSort]      = useState('newest')
+  const [loadsPriceMin,  setLoadsPriceMin]  = useState('')
+  const [loadsPriceMax,  setLoadsPriceMax]  = useState('')
+  const [loadsMyCapacity,setLoadsMyCapacity]= useState(false)  // only show loads ≤ my truck capacity
   // Bidding
   const [bidModal,       setBidModal]       = useState(null)  // load object
   const [bidPrice,       setBidPrice]       = useState('')
@@ -741,14 +744,19 @@ export default function CarrierDashboard() {
 
   const CARGO_TYPES = ['General Goods', 'Electronics', 'Food/Perishables', 'Furniture', 'Livestock', 'Construction Materials', 'Chemicals', 'Automotive', 'Mining Equipment', 'Other']
 
+  const maxTruckCapacityKg = Math.max(0, ...trucks.filter(t => t.status === 'active').map(t => t.capacity_kg || 0))
+
   const filteredLoads = availableLoads
     .filter(l => {
       const q = loadsSearch.toLowerCase()
-      const matchSearch = !q || l.from_location?.toLowerCase().includes(q) || l.to_location?.toLowerCase().includes(q) || l.cargo_type?.toLowerCase().includes(q)
-      const matchCargo  = loadsCargoType === 'all' || l.cargo_type === loadsCargoType
-      const matchUrgent = !loadsUrgent || l.urgent
-      const matchPooled = !loadsPooled || l.pooling
-      return matchSearch && matchCargo && matchUrgent && matchPooled
+      const matchSearch    = !q || l.from_location?.toLowerCase().includes(q) || l.to_location?.toLowerCase().includes(q) || l.cargo_type?.toLowerCase().includes(q)
+      const matchCargo     = loadsCargoType === 'all' || l.cargo_type === loadsCargoType
+      const matchUrgent    = !loadsUrgent || l.urgent
+      const matchPooled    = !loadsPooled || l.pooling
+      const matchPriceMin  = !loadsPriceMin  || (l.price_estimate || 0) >= Number(loadsPriceMin)
+      const matchPriceMax  = !loadsPriceMax  || (l.price_estimate || 0) <= Number(loadsPriceMax)
+      const matchCapacity  = !loadsMyCapacity || !l.weight_kg || maxTruckCapacityKg <= 0 || l.weight_kg <= maxTruckCapacityKg
+      return matchSearch && matchCargo && matchUrgent && matchPooled && matchPriceMin && matchPriceMax && matchCapacity
     })
     .map(l => ({ ...l, ...scoreLoad(l, carrierInfo, carrierRoutes, trucks) }))
     .sort((a, b) => {
@@ -978,8 +986,31 @@ export default function CarrierDashboard() {
                 className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border font-medium transition-colors ${loadsPooled ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-300'}`}>
                 🔗 Pooled
               </button>
-              {(loadsSearch || loadsCargoType !== 'all' || loadsUrgent || loadsPooled) && (
-                <button onClick={() => { setLoadsSearch(''); setLoadsCargoType('all'); setLoadsUrgent(false); setLoadsPooled(false) }}
+              {/* Price range */}
+              <div className="flex items-center gap-1">
+                <input
+                  type="number" min="0" placeholder="Min P"
+                  value={loadsPriceMin}
+                  onChange={e => setLoadsPriceMin(e.target.value)}
+                  className="w-20 text-xs border border-stone-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-forest-300"
+                />
+                <span className="text-xs text-stone-400">–</span>
+                <input
+                  type="number" min="0" placeholder="Max P"
+                  value={loadsPriceMax}
+                  onChange={e => setLoadsPriceMax(e.target.value)}
+                  className="w-20 text-xs border border-stone-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-forest-300"
+                />
+              </div>
+              {/* Within my capacity */}
+              {maxTruckCapacityKg > 0 && (
+                <button onClick={() => setLoadsMyCapacity(v => !v)}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border font-medium transition-colors ${loadsMyCapacity ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-300'}`}>
+                  🚛 My capacity
+                </button>
+              )}
+              {(loadsSearch || loadsCargoType !== 'all' || loadsUrgent || loadsPooled || loadsPriceMin || loadsPriceMax || loadsMyCapacity) && (
+                <button onClick={() => { setLoadsSearch(''); setLoadsCargoType('all'); setLoadsUrgent(false); setLoadsPooled(false); setLoadsPriceMin(''); setLoadsPriceMax(''); setLoadsMyCapacity(false) }}
                   className="text-xs text-stone-400 hover:text-stone-600 flex items-center gap-1">
                   <X size={12} /> Clear
                 </button>
@@ -1293,7 +1324,33 @@ export default function CarrierDashboard() {
             <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden">
               <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
                 <h3 className="font-display font-700 text-stone-900 text-sm">Earnings History</h3>
-                <span className="text-xs text-stone-400">{earnings.length} record{earnings.length !== 1 ? 's' : ''}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-stone-400">{earnings.length} record{earnings.length !== 1 ? 's' : ''}</span>
+                  {earnings.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const rows = [
+                          ['Date', 'Route', 'Amount (BWP)', 'Status'],
+                          ...earnings.map(e => [
+                            new Date(e.earned_at).toLocaleDateString('en-GB'),
+                            e.loads?.from_location && e.loads?.to_location ? `${e.loads.from_location} → ${e.loads.to_location}` : 'Delivery',
+                            Number(e.amount).toFixed(2),
+                            e.status,
+                          ])
+                        ]
+                        const csv  = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+                        const blob = new Blob([csv], { type: 'text/csv' })
+                        const url  = URL.createObjectURL(blob)
+                        const a    = document.createElement('a'); a.href = url
+                        a.download = `cargomatch-earnings-${new Date().toISOString().slice(0,10)}.csv`
+                        a.click(); URL.revokeObjectURL(url)
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-forest-600 hover:text-forest-700 font-medium border border-forest-200 hover:bg-forest-50 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      <Download size={11} /> Export CSV
+                    </button>
+                  )}
+                </div>
               </div>
               {earnings.length === 0 ? (
                 <div className="py-12 text-center">
