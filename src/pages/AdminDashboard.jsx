@@ -67,6 +67,11 @@ export default function AdminDashboard() {
   const [selectedDispute,   setSelectedDispute]   = useState(null) // dispute for detail panel
   const [resolutionNote,    setResolutionNote]    = useState('')
   const [updatingDispute,   setUpdatingDispute]   = useState(null)
+  const [editRoleModal,     setEditRoleModal]     = useState(null)   // profile obj being edited
+  const [newRole,           setNewRole]           = useState('')
+  const [savingRole,        setSavingRole]        = useState(false)
+  const [roleError,         setRoleError]         = useState('')
+  const [expandedUserId,    setExpandedUserId]    = useState(null)   // carrier quick-view
 
   useEffect(() => {
     if (user) fetchAll()
@@ -127,7 +132,7 @@ export default function AdminDashboard() {
   const fetchCarriers = async () => {
     const { data } = await supabase
       .from('carriers')
-      .select('*, profiles(full_name, phone, location)')
+      .select('*, profiles(full_name, phone, location), carrier_subscriptions(subscription_tier, status)')
       .order('created_at', { ascending: false })
     setCarriers(data || [])
   }
@@ -216,6 +221,36 @@ export default function AdminDashboard() {
       setCarriers(cs => cs.map(c => c.id === carrierId ? { ...c, verified: !current } : c))
     }
     setVerifying(null)
+  }
+
+  const openEditRole = (u) => {
+    setEditRoleModal(u)
+    setNewRole(u.role)
+    setRoleError('')
+  }
+
+  const updateUserRole = async () => {
+    if (!editRoleModal || !newRole) return
+    if (editRoleModal.id === user.id) {
+      setRoleError("You cannot change your own role.")
+      return
+    }
+    setSavingRole(true)
+    setRoleError('')
+    if (import.meta.env.DEV) {
+      console.warn('[CargoMatch Admin] Role override:', editRoleModal.full_name, editRoleModal.role, '→', newRole)
+    }
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role: newRole })
+      .eq('id', editRoleModal.id)
+    if (error) {
+      setRoleError(error.message || 'Failed to update role.')
+    } else {
+      setUsers(us => us.map(u => u.id === editRoleModal.id ? { ...u, role: newRole } : u))
+      setEditRoleModal(null)
+    }
+    setSavingRole(false)
   }
 
   // Filtered lists
@@ -386,6 +421,7 @@ export default function AdminDashboard() {
 
         {/* ── USERS ────────────────────────────────────────────── */}
         {tab === 'users' && (
+          <>
           <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
               <h2 className="font-display font-700 text-stone-900">All Users</h2>
@@ -407,43 +443,168 @@ export default function AdminDashboard() {
               </select>
             </div>
             {loading ? (
-              <SkeletonRows cols={2} rows={5} />
+              <SkeletonRows cols={3} rows={5} />
             ) : filteredUsers.length === 0 ? (
               <div className="p-12 text-center text-stone-400 text-sm">No users found.</div>
             ) : (
               <div className="divide-y divide-stone-50 animate-fadeIn">
-                {filteredUsers.map((u, idx) => (
-                  <div key={u.id} className="flex items-center gap-4 px-6 py-4 hover:bg-stone-50 transition-all animate-slideUp"
-                    style={{ animationDelay: `${idx * 30}ms` }}>
-                    <div className="w-9 h-9 bg-forest-100 rounded-full flex items-center justify-center font-display font-700 text-sm text-forest-700 flex-shrink-0">
-                      {u.full_name?.[0]?.toUpperCase() || '?'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-900">{u.full_name}</p>
-                      <p className="text-xs text-stone-400">
-                        {u.phone || 'No phone'}{u.location ? ` · ${u.location}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                        u.role === 'shipper' ? 'bg-blue-50 text-blue-700' :
-                        u.role === 'carrier' ? 'bg-forest-50 text-forest-700' :
-                        'bg-purple-50 text-purple-700'
-                      }`}>{u.role}</span>
-                      {u.is_admin && (
-                        <span className="text-xs bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                          <Shield size={9} /> Admin
-                        </span>
+                {filteredUsers.map((u, idx) => {
+                  const carrierRecord = carriers.find(c => c.user_id === u.id)
+                  const isExpanded = expandedUserId === u.id
+                  const isSelf = u.id === user.id
+                  return (
+                    <div key={u.id} className="animate-slideUp" style={{ animationDelay: `${idx * 30}ms` }}>
+                      <div className="flex items-center gap-4 px-6 py-4 hover:bg-stone-50 transition-all">
+                        <div className="w-9 h-9 bg-forest-100 rounded-full flex items-center justify-center font-display font-700 text-sm text-forest-700 flex-shrink-0">
+                          {u.full_name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-stone-900">{u.full_name}{isSelf && <span className="ml-1 text-xs text-stone-400">(you)</span>}</p>
+                          <p className="text-xs text-stone-400">
+                            {u.phone || 'No phone'}{u.company_name ? ` · ${u.company_name}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+                            u.role === 'shipper' ? 'bg-blue-50 text-blue-700' :
+                            u.role === 'carrier' ? 'bg-forest-50 text-forest-700' :
+                            'bg-purple-50 text-purple-700'
+                          }`}>{u.role}</span>
+                          {u.is_admin && (
+                            <span className="text-xs bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                              <Shield size={9} /> Admin
+                            </span>
+                          )}
+                          <span className="text-xs text-stone-400 hidden sm:block">
+                            {new Date(u.created_at).toLocaleDateString()}
+                          </span>
+                          {/* Edit role — disabled for self and admins */}
+                          {!isSelf && !u.is_admin && (
+                            <button
+                              onClick={() => openEditRole(u)}
+                              className="text-xs px-2.5 py-1.5 border border-stone-200 rounded-lg hover:bg-stone-100 text-stone-600 transition-colors"
+                            >
+                              Edit Role
+                            </button>
+                          )}
+                          {/* Carrier quick-view toggle */}
+                          {carrierRecord && (
+                            <button
+                              onClick={() => setExpandedUserId(isExpanded ? null : u.id)}
+                              className={`p-1.5 rounded-lg transition-colors ${isExpanded ? 'bg-forest-50 text-forest-600' : 'text-stone-400 hover:bg-stone-100'}`}
+                            >
+                              <ChevronRight size={14} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Carrier quick-view panel */}
+                      {isExpanded && carrierRecord && (
+                        <div className="mx-6 mb-4 bg-stone-50 border border-stone-200 rounded-xl p-4 text-xs text-stone-600">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div>
+                              <p className="text-stone-400 mb-0.5">Company</p>
+                              <p className="font-medium text-stone-800">{carrierRecord.company_name || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-stone-400 mb-0.5">Subscription</p>
+                              <p className={`font-medium capitalize ${
+                                carrierRecord.carrier_subscriptions?.subscription_tier === 'pro'        ? 'text-forest-700' :
+                                carrierRecord.carrier_subscriptions?.subscription_tier === 'enterprise' ? 'text-purple-700' :
+                                carrierRecord.carrier_subscriptions?.subscription_tier === 'basic'      ? 'text-blue-700' :
+                                'text-stone-500'
+                              }`}>
+                                {carrierRecord.carrier_subscriptions?.subscription_tier || 'None'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-stone-400 mb-0.5">Truck type</p>
+                              <p className="font-medium text-stone-800">{carrierRecord.truck_type || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-stone-400 mb-0.5">Verified</p>
+                              <div className="flex items-center gap-1.5">
+                                {carrierRecord.verified
+                                  ? <><ShieldCheck size={12} className="text-forest-500" /><span className="text-forest-700 font-medium">Yes</span></>
+                                  : <><ShieldX size={12} className="text-stone-400" /><span className="text-stone-500">No</span></>
+                                }
+                                <button
+                                  onClick={() => toggleVerify(carrierRecord.id, carrierRecord.verified)}
+                                  disabled={verifying === carrierRecord.id}
+                                  className="ml-1 px-2 py-0.5 rounded border border-stone-300 hover:bg-white transition-colors disabled:opacity-50"
+                                >
+                                  {verifying === carrierRecord.id ? '…' : carrierRecord.verified ? 'Revoke' : 'Verify'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       )}
-                      <span className="text-xs text-stone-400 hidden sm:block">
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </span>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
+
+          {/* ── Edit Role Modal ───────────────────────────────── */}
+          {editRoleModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4" onClick={() => setEditRoleModal(null)}>
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+              <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-7" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setEditRoleModal(null)} className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100">
+                  <X size={16} />
+                </button>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Users size={18} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-700 text-stone-900">Edit Role</h3>
+                    <p className="text-xs text-stone-400">{editRoleModal.full_name}</p>
+                  </div>
+                </div>
+
+                {roleError && (
+                  <div className="flex items-center gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 mb-4">
+                    <AlertTriangle size={13} className="flex-shrink-0" /> {roleError}
+                  </div>
+                )}
+
+                <div className="mb-5">
+                  <label className="block text-xs font-medium text-stone-600 mb-1.5">Role</label>
+                  <select
+                    value={newRole}
+                    onChange={e => setNewRole(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-forest-300 bg-white"
+                  >
+                    <option value="shipper">Shipper</option>
+                    <option value="carrier">Carrier</option>
+                    <option value="both">Both</option>
+                  </select>
+                  <p className="text-xs text-stone-400 mt-1.5">
+                    Current role: <span className="font-medium text-stone-600 capitalize">{editRoleModal.role}</span>
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={() => setEditRoleModal(null)}
+                    className="flex-1 py-2.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={updateUserRole}
+                    disabled={savingRole || newRole === editRoleModal.role}
+                    className="flex-1 py-2.5 bg-forest-600 hover:bg-forest-700 disabled:bg-stone-200 disabled:text-stone-400 text-white text-sm font-semibold rounded-xl transition-colors"
+                  >
+                    {savingRole ? 'Saving…' : 'Save Role'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          </>
         )}
 
         {/* ── CARRIERS ─────────────────────────────────────────── */}

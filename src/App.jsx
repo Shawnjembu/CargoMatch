@@ -11,15 +11,27 @@ import CarrierProfile from './pages/CarrierProfile'
 import ProfileSettings from './pages/ProfileSettings'
 import MapView from './pages/MapView'
 import AdminDashboard from './pages/AdminDashboard'
+import Onboarding              from './pages/Onboarding'
 import NotFound                from './pages/NotFound'
 import Invoice                 from './pages/Invoice'
 import CarrierSubscription     from './pages/CarrierSubscription'
 import SubscriptionSuccess     from './pages/SubscriptionSuccess'
 
+// Redirect logged-in users away from the landing page to their dashboard
+function HomeRoute() {
+  const { user, profile, loading } = useAuth()
+  if (loading) return <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400">Loading...</div>
+  if (!user) return <Landing />
+  if (profile?.is_admin)           return <Navigate to="/admin"   replace />
+  if (profile?.role === 'carrier') return <Navigate to="/carrier" replace />
+  return <Navigate to="/shipper" replace />
+}
+
 function RoleRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
   if (loading) return <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400">Loading...</div>
   if (!user) return <Navigate to="/" replace />
+  if (profile && profile.onboarded === false) return <Navigate to="/onboarding" replace />
   if (role && profile?.role !== role && profile?.role !== 'both') return <Navigate to="/" replace />
   return children
 }
@@ -35,7 +47,8 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/"                  element={<Landing />} />
+        <Route path="/"                  element={<HomeRoute />} />
+        <Route path="/onboarding"        element={<Onboarding />} />
         <Route path="/shipper"           element={<RoleRoute><ShipperDashboard /></RoleRoute>} />
         <Route path="/carrier"           element={<RoleRoute><CarrierDashboard /></RoleRoute>} />
         <Route path="/post-load"         element={<RoleRoute><PostLoad /></RoleRoute>} />

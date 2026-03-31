@@ -1,162 +1,196 @@
-import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import Navbar from '../components/Navbar'
-import AuthModal from '../components/AuthModal'
-import CountUp from '../components/CountUp'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 import {
-  Truck, Package, MapPin, Star, Shield, DollarSign,
-  ArrowRight, Users, BarChart2, Zap, ChevronRight
+  Truck, Package, MapPin, Shield, BarChart2, Globe,
+  CheckCircle, ArrowRight
 } from 'lucide-react'
 
-const features = [
-  { icon: Zap,      title: 'Smart Matching',    desc: 'Our AI pairs your cargo with trucks already heading your route — matched in minutes, not days.', color: 'bg-amber-50 text-amber-600' },
-  { icon: Users,    title: 'Load Pooling',      desc: 'Share truck space with other shippers going the same way. Split costs, not headaches.',          color: 'bg-blue-50 text-blue-600' },
-  { icon: MapPin,   title: 'Real-Time Tracking',desc: 'Live GPS tracking from pickup to drop-off. Always know where your cargo is.',                    color: 'bg-forest-50 text-forest-600' },
-  { icon: Shield,   title: 'Verified Carriers', desc: 'Every truck owner is vetted, rated, and reviewed. You only work with trusted partners.',         color: 'bg-purple-50 text-purple-600' },
-  { icon: DollarSign,title: 'Price Transparency',desc: 'See all costs before you commit. No hidden fees, no surprises at delivery.',                   color: 'bg-rose-50 text-rose-600' },
-  { icon: BarChart2, title: 'Route Analytics',  desc: 'Get insights into your shipping patterns and discover where you can save even more.',            color: 'bg-teal-50 text-teal-600' },
+// ── helpers ──────────────────────────────────────────────────
+function NavBar({ onCTA }) {
+  return (
+    <nav className="fixed top-0 inset-x-0 z-40 bg-white/80 backdrop-blur border-b border-stone-100">
+      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        <span className="font-display font-800 text-xl text-forest-700">CargoMatch</span>
+        <div className="flex items-center gap-4">
+          <a href="#pricing" className="text-sm text-stone-500 hover:text-stone-800 transition-colors hidden sm:block">
+            Pricing
+          </a>
+          <button
+            onClick={onCTA}
+            className="px-4 py-2 bg-forest-600 hover:bg-forest-700 text-white text-sm font-medium rounded-xl transition-colors"
+          >
+            Get Started
+          </button>
+        </div>
+      </div>
+    </nav>
+  )
+}
+
+const HOW_SHIPPERS = [
+  { step: '01', title: 'Post a Load', desc: 'Describe your cargo, pickup & delivery locations, and preferred dates.' },
+  { step: '02', title: 'Receive Bids', desc: 'Verified carriers respond with competitive quotes within minutes.' },
+  { step: '03', title: 'Confirm & Track', desc: 'Accept the best offer and track your shipment in real time.' },
 ]
 
-const steps = [
-  { n: '01', title: 'Post Your Load',  desc: 'Describe your cargo, pickup location, destination and timeline.' },
-  { n: '02', title: 'Get Matched',     desc: 'The platform instantly surfaces available trucks on your route.' },
-  { n: '03', title: 'Compare & Book',  desc: 'Review carrier profiles, ratings and prices. Confirm in one tap.' },
-  { n: '04', title: 'Track & Receive', desc: 'Watch your shipment move live. Confirm delivery when it arrives.' },
+const HOW_CARRIERS = [
+  { step: '01', title: 'Browse Loads', desc: 'See loads matching your routes, truck type, and availability.' },
+  { step: '02', title: 'Place a Bid', desc: 'Submit your rate and availability with one tap.' },
+  { step: '03', title: 'Match & Earn', desc: "Get matched, complete the job, and grow your fleet's revenue." },
 ]
 
-const testimonials = [
-  { name: 'Kabo Mosweu',   role: 'Hardware Store Owner, Gaborone',   text: 'CargoMatch cut my supply chain costs by almost half. The load pooling feature is a game changer for a small business like mine.', rating: 5 },
-  { name: 'Thato Seretse', role: 'Carrier, Francistown–Gaborone',    text: "I used to drive back empty after every delivery. Now I fill my truck both ways. My monthly income has grown significantly.",          rating: 5 },
-  { name: 'Mpho Dlamini',  role: 'Logistics Manager, Kasane',        text: 'The real-time tracking alone justifies the platform. My clients love being able to see exactly where their goods are.',            rating: 5 },
+const WHY_CARDS = [
+  {
+    icon: Shield,
+    title: 'Verified Carriers',
+    desc: 'Every carrier on CargoMatch is vetted with valid operating licences and compliance documents.',
+  },
+  {
+    icon: MapPin,
+    title: 'Real-time Tracking',
+    desc: 'Live GPS sharing means you always know exactly where your cargo is, no phone calls needed.',
+  },
+  {
+    icon: BarChart2,
+    title: 'Competitive Pricing',
+    desc: 'Open bidding drives fair market rates — shippers save, carriers fill trucks.',
+  },
+  {
+    icon: Globe,
+    title: 'SADC Coverage',
+    desc: 'Cross-border loads across Botswana, South Africa, Zimbabwe, Zambia and beyond.',
+  },
 ]
 
-const LIVE_STATS = [
-  { label: 'Active Carriers',  key: 'carriers',  suffix: '+',   decimals: 0 },
-  { label: 'Loads Delivered',  key: 'delivered',  suffix: '+',   decimals: 0 },
-  { label: 'Avg. Cost Savings', key: 'savings',   suffix: '%',   decimals: 0 },
-  { label: 'Platform Rating',  key: 'rating',    suffix: '★',   decimals: 1 },
+const PLANS = [
+  {
+    name: 'Trial',
+    price: 'Free',
+    period: '30 days',
+    color: 'border-stone-200',
+    badge: null,
+    features: ['5 load posts', 'Bid on loads', 'Basic tracking', 'Email support'],
+  },
+  {
+    name: 'Basic',
+    price: 'P150',
+    period: '/ month',
+    color: 'border-stone-200',
+    badge: null,
+    features: ['20 load posts', 'Priority matching', 'Live tracking', 'Chat support'],
+  },
+  {
+    name: 'Pro',
+    price: 'P350',
+    period: '/ month',
+    color: 'border-forest-500 ring-2 ring-forest-400',
+    badge: 'Most Popular',
+    features: ['Unlimited posts', 'Advanced analytics', 'Invoice generation', 'Phone support'],
+  },
+  {
+    name: 'Enterprise',
+    price: 'P750',
+    period: '/ month',
+    color: 'border-stone-200',
+    badge: null,
+    features: ['Everything in Pro', 'Dedicated account manager', 'Fleet management', 'Custom integrations'],
+  },
 ]
 
+// ── main component ────────────────────────────────────────────
 export default function Landing() {
+  const navigate  = useNavigate()
   const { user, profile } = useAuth()
-  const navigate = useNavigate()
-  const [showAuth, setShowAuth] = useState(false)
-  const [authRole, setAuthRole] = useState('shipper')
-  const [liveNums, setLiveNums] = useState({ carriers: 0, delivered: 0, savings: 40, rating: 4.8 })
 
-  useEffect(() => {
-    const fetchLiveStats = async () => {
-      const [{ count: delivered }, { count: carriers }] = await Promise.all([
-        supabase.from('shipments').select('*', { count: 'exact', head: true }).eq('status', 'delivered'),
-        supabase.from('carriers').select('*', { count: 'exact', head: true }),
-      ])
-      setLiveNums({ carriers: carriers || 0, delivered: delivered || 0, savings: 40, rating: 4.8 })
-    }
-    fetchLiveStats()
-  }, [])
-
-  const handleCTA = (role) => {
+  function handleCTA(dest = 'signup') {
     if (user) {
-      navigate(role === 'carrier' ? '/carrier' : '/shipper')
-    } else {
-      setAuthRole(role)
-      setShowAuth(true)
+      if (profile?.is_admin)           return navigate('/admin')
+      if (profile?.role === 'carrier') return navigate('/carrier')
+      return navigate('/shipper')
     }
+    window.dispatchEvent(new CustomEvent('cargomatch:open-auth', { detail: { mode: dest } }))
   }
 
   return (
-    <div className="min-h-screen bg-cream font-body">
-      <Navbar />
+    <div className="min-h-screen bg-white font-sans text-stone-800">
+      <NavBar onCTA={() => handleCTA('signup')} />
 
-      {/* Hero */}
-      <section className="relative pt-32 pb-24 px-6 overflow-hidden">
-        <div className="absolute inset-0 -z-10">
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-forest-100 rounded-full blur-3xl opacity-40 translate-x-1/3 -translate-y-1/4" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-sand rounded-full blur-2xl opacity-60 -translate-x-1/4 translate-y-1/4" />
-          <div className="absolute inset-0 opacity-[0.03]"
-            style={{ backgroundImage: 'linear-gradient(#259658 1px, transparent 1px), linear-gradient(90deg, #259658 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-        </div>
-
-        <div className="max-w-5xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-forest-50 border border-forest-200 text-forest-700 text-sm font-medium px-4 py-1.5 rounded-full mb-8 animate-fadeUp">
-            <span className="w-2 h-2 bg-forest-500 rounded-full animate-pulse-dot" />
-            Now live across Southern Africa
-          </div>
-
-          <h1 className="font-display text-5xl md:text-7xl font-800 text-stone-900 leading-[1.05] mb-6 animate-fadeUp delay-100">
-            Freight matching,<br />
-            <span className="text-forest-500 relative">
-              reimagined.
-              <svg className="absolute -bottom-2 left-0 w-full" viewBox="0 0 400 12" fill="none">
-                <path d="M2 8 Q100 2 200 8 Q300 14 398 8" stroke="#259658" strokeWidth="3" strokeLinecap="round" fill="none" opacity="0.4" />
-              </svg>
-            </span>
+      {/* ── HERO ─────────────────────────────────────────────── */}
+      <section className="pt-32 pb-24 px-6 bg-gradient-to-br from-forest-50 via-white to-sand-50">
+        <div className="max-w-4xl mx-auto text-center">
+          <span className="inline-block px-3 py-1 bg-forest-100 text-forest-700 text-xs font-semibold rounded-full mb-6 tracking-wide uppercase">
+            Built for Botswana &amp; SADC
+          </span>
+          <h1 className="font-display font-800 text-5xl sm:text-6xl text-stone-900 leading-tight mb-6">
+            Move Cargo Smarter<br className="hidden sm:block" /> Across Botswana
           </h1>
-
-          <p className="text-lg md:text-xl text-stone-500 max-w-2xl mx-auto mb-10 animate-fadeUp delay-200 leading-relaxed">
-            CargoMatch connects shippers and carriers across Botswana and Southern Africa.
-            Post a load, get matched instantly, track in real time — and save up to 40% on transport costs.
+          <p className="text-lg text-stone-500 max-w-2xl mx-auto mb-10 leading-relaxed">
+            Connect with verified carriers, post loads in minutes, and track every
+            shipment in real time — all in one platform built for the SADC region.
           </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fadeUp delay-300">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
-              onClick={() => handleCTA('shipper')}
-              className="inline-flex items-center justify-center gap-2 bg-forest-500 hover:bg-forest-600 text-white font-display font-700 text-base px-8 py-4 rounded-xl transition-all hover:shadow-lg hover:shadow-forest-200 hover:-translate-y-0.5"
+              onClick={() => handleCTA('signup')}
+              className="w-full sm:w-auto px-8 py-4 bg-forest-600 hover:bg-forest-700 text-white font-semibold rounded-2xl text-base shadow-lg shadow-forest-200 transition-all hover:shadow-xl hover:-translate-y-0.5"
             >
-              📦 I Need to Ship <ArrowRight size={18} />
+              Post a Load
             </button>
             <button
-              onClick={() => handleCTA('carrier')}
-              className="inline-flex items-center justify-center gap-2 bg-white border-2 border-stone-200 hover:border-forest-300 text-stone-700 font-display font-700 text-base px-8 py-4 rounded-xl transition-all hover:-translate-y-0.5"
+              onClick={() => handleCTA('signup')}
+              className="w-full sm:w-auto px-8 py-4 border-2 border-forest-600 text-forest-700 hover:bg-forest-50 font-semibold rounded-2xl text-base transition-colors"
             >
-              🚛 I'm a Carrier <Truck size={18} />
+              Join as a Carrier
             </button>
           </div>
         </div>
+      </section>
 
-        {/* Floating route card */}
-        <div className="max-w-4xl mx-auto mt-20 animate-fadeUp delay-400">
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-xl shadow-stone-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-medium text-stone-400 uppercase tracking-widest">Live Route Preview</span>
-              <span className="flex items-center gap-1.5 text-xs text-forest-600 font-medium">
-                <span className="w-2 h-2 bg-forest-500 rounded-full animate-pulse-dot" /> 3 trucks available
-              </span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-3 h-3 bg-forest-500 rounded-full" />
-                <div className="w-0.5 h-16 bg-stone-200 my-1" />
-                <div className="w-3 h-3 bg-stone-400 rounded-full" />
-              </div>
-              <div className="flex-1">
-                <div className="mb-4">
-                  <p className="font-display font-700 text-stone-900">Gaborone</p>
-                  <p className="text-sm text-stone-400">Pickup · Ready now</p>
+      {/* ── HOW IT WORKS ─────────────────────────────────────── */}
+      <section className="py-24 px-6 bg-white">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="font-display font-800 text-3xl sm:text-4xl text-stone-900 mb-3">How It Works</h2>
+            <p className="text-stone-400 text-base">Simple for shippers. Powerful for carriers.</p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-12">
+            {/* Shippers column */}
+            <div>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-9 h-9 bg-forest-100 rounded-xl flex items-center justify-center">
+                  <Package size={18} className="text-forest-700" />
                 </div>
-                <div className="h-0.5 route-line mb-4" />
-                <div>
-                  <p className="font-display font-700 text-stone-900">Francistown</p>
-                  <p className="text-sm text-stone-400">Destination · ~3h 20min</p>
-                </div>
+                <h3 className="font-display font-700 text-lg text-stone-800">For Shippers</h3>
               </div>
-              <div className="hidden sm:flex flex-col gap-2">
-                {[
-                  { carrier: 'Lekgowa Transport', price: 'P 1,240', rating: '4.9' },
-                  { carrier: 'Moagi Haulage',     price: 'P 1,390', rating: '4.7' },
-                  { carrier: 'Ditiro Freight',    price: 'P 1,180', rating: '4.8' },
-                ].map((c, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-stone-50 rounded-lg px-3 py-2">
-                    <div className="w-7 h-7 bg-forest-100 rounded-full flex items-center justify-center">
-                      <Truck size={13} className="text-forest-600" />
-                    </div>
+              <div className="space-y-6">
+                {HOW_SHIPPERS.map(item => (
+                  <div key={item.step} className="flex gap-4">
+                    <span className="font-display font-800 text-2xl text-forest-200 w-8 flex-shrink-0 leading-tight">{item.step}</span>
                     <div>
-                      <p className="text-xs font-medium text-stone-800">{c.carrier}</p>
-                      <p className="text-xs text-stone-400">★ {c.rating}</p>
+                      <p className="font-semibold text-stone-800 mb-0.5">{item.title}</p>
+                      <p className="text-sm text-stone-500 leading-relaxed">{item.desc}</p>
                     </div>
-                    <span className="ml-auto text-sm font-display font-700 text-forest-600">{c.price}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Carriers column */}
+            <div>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center">
+                  <Truck size={18} className="text-amber-700" />
+                </div>
+                <h3 className="font-display font-700 text-lg text-stone-800">For Carriers</h3>
+              </div>
+              <div className="space-y-6">
+                {HOW_CARRIERS.map(item => (
+                  <div key={item.step} className="flex gap-4">
+                    <span className="font-display font-800 text-2xl text-amber-200 w-8 flex-shrink-0 leading-tight">{item.step}</span>
+                    <div>
+                      <p className="font-semibold text-stone-800 mb-0.5">{item.title}</p>
+                      <p className="text-sm text-stone-500 leading-relaxed">{item.desc}</p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -165,157 +199,112 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Stats */}
-      <section className="bg-forest-600 py-14 px-6">
-        <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8">
-          {LIVE_STATS.map((s, i) => (
-            <div key={i} className="text-center">
-              <p className="font-display text-3xl md:text-4xl font-800 text-white">
-                <CountUp to={liveNums[s.key]} suffix={s.suffix} decimals={s.decimals} duration={1600} />
-              </p>
-              <p className="text-forest-200 text-sm mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="py-24 px-6">
+      {/* ── WHY CARGOMATCH ───────────────────────────────────── */}
+      <section className="py-24 px-6 bg-stone-50">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <p className="text-forest-600 font-medium text-sm uppercase tracking-widest mb-3">Platform Features</p>
-            <h2 className="font-display text-4xl md:text-5xl font-800 text-stone-900">
-              Everything you need,<br />nothing you don't.
-            </h2>
+            <h2 className="font-display font-800 text-3xl sm:text-4xl text-stone-900 mb-3">Why CargoMatch?</h2>
+            <p className="text-stone-400 text-base">Everything you need, nothing you don't.</p>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((f, i) => (
-              <div key={i} className="bg-white rounded-2xl border border-stone-100 p-6 hover:shadow-lg hover:shadow-stone-100 transition-all hover:-translate-y-1 group">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${f.color}`}>
-                  <f.icon size={20} />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {WHY_CARDS.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="bg-white rounded-2xl border border-stone-100 p-6 shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-10 h-10 bg-forest-50 border border-forest-100 rounded-xl flex items-center justify-center mb-4">
+                  <Icon size={18} className="text-forest-600" />
                 </div>
-                <h3 className="font-display font-700 text-stone-900 text-lg mb-2">{f.title}</h3>
-                <p className="text-stone-500 text-sm leading-relaxed">{f.desc}</p>
-                <div className="mt-4 flex items-center gap-1 text-forest-500 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                  Learn more <ChevronRight size={14} />
-                </div>
+                <h3 className="font-semibold text-stone-800 mb-2">{title}</h3>
+                <p className="text-sm text-stone-500 leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section className="py-24 px-6 bg-sand">
-        <div className="max-w-5xl mx-auto">
+      {/* ── PRICING ──────────────────────────────────────────── */}
+      <section id="pricing" className="py-24 px-6 bg-white">
+        <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <p className="text-forest-600 font-medium text-sm uppercase tracking-widest mb-3">How It Works</p>
-            <h2 className="font-display text-4xl md:text-5xl font-800 text-stone-900">Ship in four steps.</h2>
+            <h2 className="font-display font-800 text-3xl sm:text-4xl text-stone-900 mb-3">Simple, Transparent Pricing</h2>
+            <p className="text-stone-400 text-base">Start free. Scale as you grow. Cancel anytime.</p>
           </div>
-          <div className="grid md:grid-cols-4 gap-6">
-            {steps.map((s, i) => (
-              <div key={i} className="relative">
-                {i < steps.length - 1 && (
-                  <div className="hidden md:block absolute top-8 left-full w-full h-0.5 bg-forest-200 -translate-x-1/2 z-0" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+            {PLANS.map(plan => (
+              <div
+                key={plan.name}
+                className={`relative bg-white rounded-2xl border-2 p-6 ${plan.color} ${plan.badge ? 'shadow-xl' : 'shadow-sm'}`}
+              >
+                {plan.badge && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-forest-600 text-white text-xs font-semibold rounded-full whitespace-nowrap">
+                    {plan.badge}
+                  </span>
                 )}
-                <div className="relative z-10 text-center">
-                  <div className="w-16 h-16 bg-forest-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-4 font-display font-800 text-lg shadow-lg shadow-forest-200">
-                    {s.n}
-                  </div>
-                  <h3 className="font-display font-700 text-stone-900 mb-2">{s.title}</h3>
-                  <p className="text-stone-500 text-sm leading-relaxed">{s.desc}</p>
+                <h3 className="font-display font-700 text-lg text-stone-800 mb-1">{plan.name}</h3>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-3xl font-800 text-stone-900">{plan.price}</span>
+                  <span className="text-sm text-stone-400">{plan.period}</span>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="text-center mt-12">
-            <button
-              onClick={() => handleCTA('shipper')}
-              className="inline-flex items-center gap-2 bg-forest-500 hover:bg-forest-600 text-white font-display font-700 px-8 py-4 rounded-xl transition-all hover:shadow-lg hover:shadow-forest-200"
-            >
-              Start Shipping <ArrowRight size={18} />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section className="py-24 px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <p className="text-forest-600 font-medium text-sm uppercase tracking-widest mb-3">Testimonials</p>
-            <h2 className="font-display text-4xl md:text-5xl font-800 text-stone-900">Trusted across Botswana.</h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t, i) => (
-              <div key={i} className="bg-white rounded-2xl border border-stone-100 p-6 hover:shadow-lg transition-all">
-                <div className="flex gap-0.5 mb-4">
-                  {Array.from({ length: t.rating }).map((_, j) => (
-                    <Star key={j} size={14} className="fill-amber-400 text-amber-400" />
+                <ul className="space-y-2.5 mt-5 mb-6">
+                  {plan.features.map(f => (
+                    <li key={f} className="flex items-center gap-2 text-sm text-stone-600">
+                      <CheckCircle size={14} className="text-forest-500 flex-shrink-0" />
+                      {f}
+                    </li>
                   ))}
-                </div>
-                <p className="text-stone-700 text-sm leading-relaxed mb-6">"{t.text}"</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 bg-forest-100 rounded-full flex items-center justify-center font-display font-700 text-forest-700 text-sm">
-                    {t.name[0]}
-                  </div>
-                  <div>
-                    <p className="text-sm font-display font-700 text-stone-900">{t.name}</p>
-                    <p className="text-xs text-stone-400">{t.role}</p>
-                  </div>
-                </div>
+                </ul>
+                <button
+                  onClick={() => handleCTA('signup')}
+                  className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    plan.badge
+                      ? 'bg-forest-600 hover:bg-forest-700 text-white'
+                      : 'border border-stone-200 hover:bg-stone-50 text-stone-700'
+                  }`}
+                >
+                  Get Started
+                </button>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Banner */}
-      <section className="py-20 px-6 bg-forest-600">
+      {/* ── CTA BANNER ───────────────────────────────────────── */}
+      <section className="py-20 px-6 bg-forest-700">
         <div className="max-w-3xl mx-auto text-center">
-          <h2 className="font-display text-4xl md:text-5xl font-800 text-white mb-4">Ready to move smarter?</h2>
-          <p className="text-forest-200 text-lg mb-10">Join thousands of shippers and carriers already saving time and money on every trip.</p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => handleCTA('shipper')}
-              className="inline-flex items-center justify-center gap-2 bg-white text-forest-700 hover:bg-forest-50 font-display font-700 px-8 py-4 rounded-xl transition-all"
-            >
-              Post a Load <Package size={18} />
-            </button>
-            <button
-              onClick={() => handleCTA('carrier')}
-              className="inline-flex items-center justify-center gap-2 bg-forest-700 hover:bg-forest-800 text-white font-display font-700 px-8 py-4 rounded-xl transition-all border border-forest-500"
-            >
-              Register as Carrier <Truck size={18} />
-            </button>
-          </div>
+          <h2 className="font-display font-800 text-3xl sm:text-4xl text-white mb-4">
+            Ready to move your first load?
+          </h2>
+          <p className="text-forest-200 text-base mb-8">
+            Join hundreds of businesses across Botswana already using CargoMatch.
+          </p>
+          <button
+            onClick={() => handleCTA('signup')}
+            className="inline-flex items-center gap-2 px-8 py-4 bg-white hover:bg-stone-50 text-forest-700 font-semibold rounded-2xl text-base shadow-lg transition-all hover:-translate-y-0.5"
+          >
+            Create a Free Account <ArrowRight size={16} />
+          </button>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-stone-200 py-10 px-6 bg-cream">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-forest-500 rounded-lg flex items-center justify-center">
-              <Truck size={13} className="text-white" />
+      {/* ── FOOTER ───────────────────────────────────────────── */}
+      <footer className="bg-stone-900 text-stone-400 py-12 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div>
+              <p className="font-display font-800 text-white text-lg mb-1">CargoMatch</p>
+              <p className="text-sm">The smarter way to move freight across SADC.</p>
             </div>
-            <span className="font-display font-800 text-stone-900">Cargo<span className="text-forest-500">Match</span></span>
+            <nav className="flex flex-wrap items-center gap-6 text-sm">
+              <a href="#" className="hover:text-white transition-colors">About</a>
+              <a href="#" className="hover:text-white transition-colors">Contact</a>
+              <a href="#" className="hover:text-white transition-colors">Terms</a>
+              <a href="#" className="hover:text-white transition-colors">Privacy</a>
+            </nav>
           </div>
-          <p className="text-stone-400 text-sm">© 2025 CargoMatch. Built for Southern Africa.</p>
-          <div className="flex gap-6 text-sm text-stone-400">
-            <a href="#" className="hover:text-forest-600 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-forest-600 transition-colors">Terms</a>
-            <a href="#" className="hover:text-forest-600 transition-colors">Contact</a>
+          <div className="mt-8 pt-6 border-t border-stone-800 text-center text-xs text-stone-600">
+            Built for Botswana 🇧🇼 &nbsp;·&nbsp; © {new Date().getFullYear()} CargoMatch. All rights reserved.
           </div>
         </div>
       </footer>
-
-      {showAuth && (
-        <AuthModal
-          onClose={() => setShowAuth(false)}
-          defaultMode="signup"
-        />
-      )}
     </div>
   )
 }
