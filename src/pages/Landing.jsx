@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import AuthModal from '../components/AuthModal'
 import {
   Truck, Package, MapPin, Shield, BarChart2, Globe,
   CheckCircle, ArrowRight
@@ -101,14 +103,15 @@ const PLANS = [
 export default function Landing() {
   const navigate  = useNavigate()
   const { user, profile } = useAuth()
+  const [authModal, setAuthModal] = useState(null) // null | 'signin' | 'signup'
 
-  function handleCTA(dest = 'signup') {
+  function handleCTA(mode = 'signup') {
     if (user) {
       if (profile?.is_admin)           return navigate('/admin')
       if (profile?.role === 'carrier') return navigate('/carrier')
       return navigate('/shipper')
     }
-    window.dispatchEvent(new CustomEvent('cargomatch:open-auth', { detail: { mode: dest } }))
+    setAuthModal(mode)
   }
 
   return (
@@ -305,6 +308,10 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+
+      {authModal && (
+        <AuthModal defaultMode={authModal} onClose={() => setAuthModal(null)} />
+      )}
     </div>
   )
 }
