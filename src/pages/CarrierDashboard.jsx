@@ -15,7 +15,7 @@ import {
   Truck, MapPin, DollarSign, Star, CheckCircle, Clock,
   TrendingUp, ArrowRight, Shield, Plus, Bell,
   Navigation, X, Play, RefreshCw, Search, Send,
-  Gavel, Info, CreditCard, Lock, Globe, AlertTriangle, Download
+  Gavel, Info, CreditCard, Lock, Globe, AlertTriangle, Download, MessageSquare
 } from 'lucide-react'
 
 // ── Adjacent cities map (within ~50km) ──────────────────────
@@ -146,7 +146,7 @@ function LoadCard({ l, openBidModal, myBidIds, recommended, index = 0 }) {
               <Gavel size={11} /> Place Bid
             </button>
           )}
-          <Link to="/messages" className="block mt-1 text-xs text-forest-600 hover:underline">Message Shipper</Link>
+          {/* Message Shipper only available after bid is accepted — no shipment_id exists at this stage */}
         </div>
       </div>
     </div>
@@ -1191,6 +1191,11 @@ export default function CarrierDashboard() {
                             return null
                           })()}
                           <Link to={`/track/${t.reference}`} className="block mt-1 text-xs text-forest-600 hover:underline">Track</Link>
+                          {['confirmed','picked_up','in_transit'].includes(t.status) && (
+                            <Link to={`/messages/${t.id}`} className="block mt-1 text-xs text-stone-500 hover:text-forest-600 transition-colors">
+                              <MessageSquare size={11} className="inline mr-0.5" /> Message Shipper
+                            </Link>
+                          )}
                         </div>
                       </div>
                     </div>

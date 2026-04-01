@@ -22,7 +22,12 @@ export default function Messages() {
   const [search,   setSearch]   = useState('')
   const [sending,  setSending]  = useState(false)
   const [loading,  setLoading]  = useState(true)
-  const bottomRef = useRef(null)
+  const [fetchErr, setFetchErr] = useState('')
+  const bottomRef  = useRef(null)
+  const activeIdRef = useRef(activeId)  // always-current ref for use inside realtime callback
+
+  // Keep ref in sync so the realtime callback always sees the latest activeId
+  useEffect(() => { activeIdRef.current = activeId }, [activeId])
 
   useEffect(() => {
     if (!user) return
@@ -31,7 +36,16 @@ export default function Messages() {
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `receiver_id=eq.${user.id}`
-      }, () => fetchConversations())
+      }, (payload) => {
+        fetchConversations().then(() => {
+          // If the incoming message belongs to the conversation the user is
+          // currently viewing, mark it read immediately — no badge should appear.
+          const incomingShipmentId = payload.new?.shipment_id
+          if (incomingShipmentId && incomingShipmentId === activeIdRef.current) {
+            markRead(incomingShipmentId)
+          }
+        })
+      })
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [user])
@@ -41,6 +55,7 @@ export default function Messages() {
   }, [activeId, convos])
 
   const fetchConversations = async () => {
+    setFetchErr('')
     if (!user) return
     setLoading(true)
     try {
@@ -116,7 +131,9 @@ export default function Messages() {
       const filtered = enriched.filter(Boolean)
       setConvos(filtered)
       if (!activeId && filtered.length) setActiveId(filtered[0].id)
-    } catch {
+    } catch (err) {
+      setFetchErr('Failed to load conversations. Check your connection and try again.')
+      if (import.meta.env.DEV) console.error('[Messages] fetchConversations error:', err)
     } finally {
       setLoading(false)
     }
@@ -195,7 +212,13 @@ export default function Messages() {
 
           <div className="flex-1 overflow-y-auto">
             {loading && <div className="p-6 text-center text-xs text-stone-400">Loading conversations...</div>}
-            {!loading && filtered.length === 0 && (
+            {!loading && fetchErr && (
+              <div className="mx-4 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+                {fetchErr}
+                <button onClick={fetchConversations} className="block mt-1 underline text-rose-600 hover:text-rose-800">Retry</button>
+              </div>
+            )}
+            {!loading && !fetchErr && filtered.length === 0 && (
               <div className="p-6 text-center">
                 <MessageSquare size={28} className="text-stone-300 mx-auto mb-2" />
                 <p className="text-xs text-stone-400">No conversations yet.</p>

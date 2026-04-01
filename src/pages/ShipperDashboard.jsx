@@ -630,9 +630,11 @@ export default function ShipperDashboard() {
                               View Profile →
                             </Link>
                           )}
-                          <Link to="/messages" className="block text-xs text-stone-400 hover:text-forest-600 transition-colors">
-                            <MessageSquare size={12} className="inline mr-0.5" /> Message
-                          </Link>
+                          {s._type === 'shipment' && ['confirmed','picked_up','in_transit'].includes(s.status) && (
+                            <Link to={`/messages/${s.shipment_id}`} className="block text-xs text-stone-400 hover:text-forest-600 transition-colors">
+                              <MessageSquare size={12} className="inline mr-0.5" /> Message Carrier
+                            </Link>
+                          )}
                           {s._type === 'load' && (
                             <button onClick={() => cancelLoad(s.id)}
                               className="block text-xs text-rose-400 hover:text-rose-600 transition-colors mt-1">

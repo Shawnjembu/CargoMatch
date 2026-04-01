@@ -132,7 +132,8 @@ export default function MapView() {
         const to   = getCity(s.loads?.to_location)
         if (!from || !to) continue
 
-        const progress = (s.progress_pct || 20) / 100
+        const defaultPct = s.status === 'in_transit' ? 50 : s.status === 'picked_up' ? 15 : 5
+        const progress = (s.progress_pct || defaultPct) / 100
         const pos = lerp(from, to, progress)
 
         const route = await drawRoadRoute(gmaps, map, from, to, { strokeColor: '#259658', strokeWeight: 2 })
@@ -151,7 +152,7 @@ export default function MapView() {
           title: s.carriers?.company_name || 'Carrier',
         })
         const info = new gmaps.InfoWindow({
-          content: `<div style="font-family:sans-serif;min-width:160px"><b style="color:#259658">${s.reference || s.id.slice(0,8)}</b><br><span style="color:#666">${s.carriers?.company_name || 'Carrier'}</span><br><span style="font-size:11px">${s.loads?.from_location} → ${s.loads?.to_location}</span><br><span style="font-size:11px;color:#259658">● In Transit · ${Math.round(s.progress_pct || 20)}%</span></div>`,
+          content: `<div style="font-family:sans-serif;min-width:160px"><b style="color:#259658">${s.reference || s.id.slice(0,8)}</b><br><span style="color:#666">${s.carriers?.company_name || 'Carrier'}</span><br><span style="font-size:11px">${s.loads?.from_location} → ${s.loads?.to_location}</span><br><span style="font-size:11px;color:#259658">● ${s.status?.replace('_',' ') || 'In Transit'} · ${Math.round(s.progress_pct || defaultPct)}%</span></div>`,
         })
         truckPin.addListener('click', () => { info.open(map, truckPin); setSelected(s) })
 
@@ -237,7 +238,7 @@ export default function MapView() {
                     <span>{s.loads?.to_location}</span>
                   </div>
                   <div className="mt-2 h-1 bg-stone-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-forest-500 rounded-full" style={{ width: `${s.progress_pct || 20}%` }} />
+                    <div className="h-full bg-forest-500 rounded-full" style={{ width: `${s.progress_pct || (s.status === 'in_transit' ? 50 : s.status === 'picked_up' ? 15 : 5)}%` }} />
                   </div>
                 </div>
               ))
