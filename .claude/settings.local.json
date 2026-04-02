@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"ALTER TABLE carriers\\\\|current_location\" c:/Users/HP/OneDrive/Desktop/cargomatch_v7/cargomatch/*.sql)"
+    ]
+  }
+}
