@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 
 // ── helpers ──────────────────────────────────────────────────
-function NavBar({ onCTA }) {
+function NavBar({ onCTA, onSignIn }) {
   return (
     <nav className="fixed top-0 inset-x-0 z-40 bg-white/80 backdrop-blur border-b border-stone-100">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -17,6 +17,12 @@ function NavBar({ onCTA }) {
           <a href="#pricing" className="text-sm text-stone-500 hover:text-stone-800 transition-colors hidden sm:block">
             Pricing
           </a>
+          <button
+            onClick={onSignIn}
+            className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 transition-colors"
+          >
+            Sign In
+          </button>
           <button
             onClick={onCTA}
             className="px-4 py-2 bg-forest-600 hover:bg-forest-700 text-white text-sm font-medium rounded-xl transition-colors"
@@ -106,6 +112,12 @@ export default function Landing() {
   const [authModal, setAuthModal] = useState(null) // null | 'signin' | 'signup'
 
   function handleCTA(mode = 'signup') {
+    // Check for signin query param (from password reset redirect)
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('signin') === 'true') {
+      mode = 'signin'
+    }
+
     if (user) {
       if (profile?.is_admin)           return navigate('/admin')
       if (profile?.role === 'carrier') return navigate('/carrier')
@@ -116,7 +128,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-white font-sans text-stone-800">
-      <NavBar onCTA={() => handleCTA('signup')} />
+      <NavBar onCTA={() => handleCTA('signup')} onSignIn={() => handleCTA('signin')} />
 
       {/* ── HERO ─────────────────────────────────────────────── */}
       <section className="pt-32 pb-24 px-6 bg-gradient-to-br from-forest-50 via-white to-sand-50">

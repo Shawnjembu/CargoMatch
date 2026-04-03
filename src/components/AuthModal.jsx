@@ -4,7 +4,7 @@ import { X, Truck, Mail, Lock, User, Phone, AlertCircle, CheckCircle, Eye, EyeOf
 import { useAuth } from '../context/AuthContext'
 
 export default function AuthModal({ onClose, defaultMode = 'signin' }) {
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, resetPassword } = useAuth()
   const navigate = useNavigate()
   const [mode,    setMode]    = useState(defaultMode)
   const [error,   setError]   = useState('')
@@ -19,6 +19,23 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
 
   const handleSubmit = async () => {
     setError(''); setSuccess('')
+
+    // Handle forgot password mode
+    if (mode === 'forgot') {
+      if (!form.email) { setError('Please enter your email address.'); return }
+      setLoading(true)
+      try {
+        await resetPassword(form.email)
+        setSuccess('Password reset link sent! Check your email.')
+      } catch (e) {
+        setError(e.message || 'Failed to send reset link. Please try again.')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    // Normal signin/signup validation
     if (!form.email || !form.password) { setError('Please fill in email and password.'); return }
     if (mode === 'signup' && !form.full_name) { setError('Please enter your full name.'); return }
     if (mode === 'signup' && form.password.length < 6) { setError('Password must be at least 6 characters.'); return }
@@ -79,10 +96,10 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
         </div>
 
         <h2 className="font-display text-2xl font-800 text-stone-900 mb-1">
-          {mode === 'signin' ? 'Welcome back' : 'Create account'}
+          {mode === 'signin' ? 'Welcome back' : mode === 'forgot' ? 'Reset password' : 'Create account'}
         </h2>
         <p className="text-stone-400 text-sm mb-6">
-          {mode === 'signin' ? 'Sign in to your CargoMatch account.' : 'Join thousands of shippers and carriers.'}
+          {mode === 'signin' ? 'Sign in to your CargoMatch account.' : mode === 'forgot' ? 'Enter your email to receive a reset link.' : 'Join thousands of shippers and carriers.'}
         </p>
 
         {error   && <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl mb-4"><AlertCircle size={15} className="flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
@@ -135,7 +152,7 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
 
         <button onClick={handleSubmit} disabled={loading}
           className="w-full mt-5 bg-forest-500 hover:bg-forest-600 disabled:bg-stone-200 disabled:text-stone-400 text-white font-display font-700 py-3 rounded-xl transition-all">
-          {loading ? 'Please wait...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+          {loading ? 'Please wait...' : mode === 'signin' ? 'Sign In' : mode === 'forgot' ? 'Send Reset Link' : 'Create Account'}
         </button>
 
         <p className="text-center text-sm text-stone-500 mt-4">
@@ -145,6 +162,15 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
             {mode === 'signin' ? 'Sign up' : 'Sign in'}
           </button>
         </p>
+
+        {mode === 'signin' && (
+          <p className="text-center text-sm text-stone-500 mt-3">
+            <button onClick={() => setMode('forgot')}
+              className="text-stone-400 hover:text-forest-600 transition-colors">
+              Forgot password?
+            </button>
+          </p>
+        )}
       </div>
     </div>
   )

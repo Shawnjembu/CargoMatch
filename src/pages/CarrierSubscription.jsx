@@ -183,6 +183,15 @@ export default function CarrierSubscription() {
     gpayBtnRef.current.appendChild(btn)
   }, [gpayReady, selectedPlan])
 
+  // Handle Google Pay button click - triggers the official SDK payment flow
+  const handleGPayClick = () => {
+    if (!gpayReady) {
+      setPayError('Google Pay is not available in this browser.')
+      return
+    }
+    handleGooglePay(selectedPlan)
+  }
+
   // ── Google Pay flow ───────────────────────────────────────────
   const handleGooglePay = async (plan) => {
     if (!gpayReady) {
@@ -214,7 +223,12 @@ export default function CarrierSubscription() {
 
       await refetch()
       setSelectedPlan(null)
-      navigate(`/carrier/subscription/success?plan=${plan.id}&price=${plan.price}&name=${encodeURIComponent(plan.name)}`)
+      // Generate confirmation code for the success page
+      const now = new Date()
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+      const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase().padEnd(6, '0')
+      const confirmCode = `CM-${dateStr}-${randomPart}`
+      navigate(`/carrier/subscription/success?plan=${plan.id}&price=${plan.price}&name=${encodeURIComponent(plan.name)}&code=${encodeURIComponent(confirmCode)}`)
     } catch (err) {
       if (err.statusCode === 'CANCELED') {
         // User closed the sheet — silent
@@ -388,7 +402,7 @@ export default function CarrierSubscription() {
                 </div>
               </div>
 
-              {/* Payment method — official Google Pay button rendered by the API */}
+              {/* Payment method — official Google Pay mark */}
               <div className="flex-1 flex flex-col justify-between">
                 <div>
                   <p className="text-xs font-700 text-stone-500 uppercase tracking-wider mb-3">Payment method</p>
@@ -400,8 +414,18 @@ export default function CarrierSubscription() {
                     <Loader size={14} className="animate-spin" /> Processing payment…
                   </div>
                 ) : (
-                  /* Button rendered exclusively via paymentsClient.createButton() */
-                  <div id="google-pay-button-container" ref={gpayBtnRef} className="w-full min-h-[48px]" />
+                  <button
+                    type="button"
+                    onClick={handleGPayClick}
+                    className="w-full rounded-xl overflow-hidden border border-stone-200 hover:border-stone-300 transition-colors"
+                    title="Pay with Google Pay"
+                  >
+                    <img
+                      src="/assets/google-pay-mark_800.svg"
+                      alt="Pay with Google Pay"
+                      className="w-full h-auto max-h-[48px] object-contain"
+                    />
+                  </button>
                 )}
 
                 <button
@@ -453,7 +477,7 @@ export default function CarrierSubscription() {
 
         {/* Billing note */}
         <p className="text-center text-xs text-stone-400">
-          Billed monthly in BWP. Cancel anytime. Payments via Google Pay.
+          Billed monthly in BWP. Cancel anytime. Payment method: Google Pay.
         </p>
       </div>
     </div>

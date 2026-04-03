@@ -18,6 +18,34 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   try {
+    // ── Verify authorization header ───────────────────────────────────
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Missing or invalid Authorization header' }),
+        { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const token = authHeader.replace('Bearer ', '')
+
+    // Verify the JWT and get user info
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+    
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      console.error('Token verification failed:', authError)
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid or expired token' }),
+        { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    console.log('Authenticated user:', user.id)
+
     const { carrier_id, plan, payment_token } = await req.json()
 
     // ── Validate inputs ────────────────────────────────────────────
@@ -43,7 +71,7 @@ serve(async (req) => {
     }
 
     // ── Activate subscription via service role ─────────────────────
-    const supabase = createClient(
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
@@ -51,7 +79,7 @@ serve(async (req) => {
     const now    = new Date()
     const subEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('carrier_subscriptions')
       .update({
         subscription_tier:  plan,
@@ -69,14 +97,14 @@ serve(async (req) => {
 
     // ── Notify the carrier ─────────────────────────────────────────
     // Look up the user_id from the carriers table so we can write a notification
-    const { data: carrier } = await supabase
+    const { data: carrier } = await supabaseAdmin
       .from('carriers')
       .select('user_id')
       .eq('id', carrier_id)
       .single()
 
     if (carrier?.user_id) {
-      await supabase.from('notifications').insert({
+      await supabaseAdmin.from('notifications').insert({
         user_id: carrier.user_id,
         type:    'subscription',
         title:   `${plan.charAt(0).toUpperCase() + plan.slice(1)} plan activated!`,

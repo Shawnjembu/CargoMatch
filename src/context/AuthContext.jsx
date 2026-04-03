@@ -91,8 +91,24 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }
 
+  // ── Reset password ──────────────────────────────────────────────
+  const resetPassword = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://cargo-match-gold.vercel.app/reset-password',
+    })
+    if (error) throw error
+    return { success: true }
+  }
+
+  // ── Update password ────────────────────────────────────────────
+  const updatePassword = async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+    return { success: true }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword, updatePassword }}>
       {children}
     </AuthContext.Provider>
   )

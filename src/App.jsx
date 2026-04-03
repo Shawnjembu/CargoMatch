@@ -16,6 +16,7 @@ import NotFound                from './pages/NotFound'
 import Invoice                 from './pages/Invoice'
 import CarrierSubscription     from './pages/CarrierSubscription'
 import SubscriptionSuccess     from './pages/SubscriptionSuccess'
+import ResetPassword            from './pages/ResetPassword'
 
 // Redirect logged-in users away from the landing page to their dashboard
 function HomeRoute() {
@@ -64,6 +65,7 @@ export default function App() {
         {/* carrier/subscription must come BEFORE carrier/:id to avoid id="subscription" match */}
         <Route path="/carrier/subscription"            element={<RoleRoute><CarrierSubscription /></RoleRoute>} />
         <Route path="/carrier/subscription/success"    element={<RoleRoute><SubscriptionSuccess /></RoleRoute>} />
+        <Route path="/reset-password"                 element={<ResetPassword />} />
         <Route path="*"                                element={<NotFound />} />
       </Routes>
     </BrowserRouter>

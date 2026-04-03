@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar'
 import { useAuth } from '../context/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { supabase } from '../lib/supabase'
-import { CheckCircle, ArrowRight, CreditCard } from 'lucide-react'
+import { CheckCircle, ArrowRight, CreditCard, Copy, Check } from 'lucide-react'
 
 const PLAN_FEATURES = {
   basic:      ['Up to 2 trucks listed', '10 bids per month', 'Verified carrier badge'],
@@ -14,6 +14,25 @@ const PLAN_FEATURES = {
 
 const REDIRECT_SECONDS = 10
 
+// Generate a unique confirmation code: CM-YYYYMMDD-XXXXXX
+function generateConfirmationCode() {
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase().padEnd(6, '0')
+  return `CM-${dateStr}-${randomPart}`
+}
+
+// Format current date/time for display
+function formatTransactionDateTime() {
+  return new Date().toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export default function SubscriptionSuccess() {
   const navigate       = useNavigate()
   const [params]       = useSearchParams()
@@ -22,11 +41,15 @@ export default function SubscriptionSuccess() {
   const [carrierId,  setCarrierId]  = useState(null)
   const [countdown,  setCountdown]  = useState(REDIRECT_SECONDS)
   const [checkAnim,  setCheckAnim]  = useState(false)
+  const [confirmationCode, setConfirmationCode] = useState('')
+  const [copied, setCopied] = useState(false)
 
   // Query params — used for mock preview and real flow alike
   const planId    = params.get('plan')  || 'pro'
   const planName  = params.get('name')  || (planId.charAt(0).toUpperCase() + planId.slice(1))
   const planPrice = params.get('price') || '350'
+  // Get confirmation code from URL (passed from payment) or keep the generated one
+  const urlCode = params.get('code')
 
   const { subscription, loading } = useSubscription(carrierId)
 
@@ -51,11 +74,17 @@ export default function SubscriptionSuccess() {
     }
   }, [subscription, loading, hasMockParams])
 
-  // Trigger checkmark animation on mount
+  // Trigger checkmark animation and set confirmation code on mount
   useEffect(() => {
     const t = setTimeout(() => setCheckAnim(true), 100)
+    // Use code from URL if available, otherwise generate one
+    if (urlCode && !confirmationCode) {
+      setConfirmationCode(urlCode)
+    } else if (!confirmationCode) {
+      setConfirmationCode(generateConfirmationCode())
+    }
     return () => clearTimeout(t)
-  }, [])
+  }, [urlCode])
 
   // Countdown + auto-redirect
   useEffect(() => {
@@ -81,6 +110,17 @@ export default function SubscriptionSuccess() {
     day: 'numeric', month: 'long', year: 'numeric',
   })
 
+  // Copy confirmation code to clipboard
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(confirmationCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-cream font-body">
       <Navbar />
@@ -100,11 +140,39 @@ export default function SubscriptionSuccess() {
               }`}
             />
           </div>
-          <h1 className="font-display text-3xl font-800 text-stone-900 mb-2">You're all set!</h1>
+          <h1 className="font-display text-3xl font-800 text-stone-900 mb-2">Payment Successful!</h1>
           <p className="text-stone-500 text-base">
             Your <strong className="text-stone-800">{planName}</strong> subscription is now active.
           </p>
         </div>
+
+        {/* Confirmation Code Section */}
+        {confirmationCode && (
+          <div className="bg-white rounded-2xl border border-forest-200 overflow-hidden mb-6">
+            <div className="px-6 py-4 bg-forest-50 border-b border-forest-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={18} className="text-forest-500" />
+                <span className="font-display font-700 text-stone-900 text-sm">Confirmation</span>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-xs text-stone-500 mb-2">Confirmation Code</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 font-mono text-lg font-700 text-stone-900 bg-stone-50 px-4 py-3 rounded-xl border border-stone-200">
+                  {confirmationCode}
+                </code>
+                <button
+                  onClick={handleCopyCode}
+                  className="p-3 rounded-xl border border-stone-200 hover:bg-stone-50 transition-colors"
+                  title="Copy confirmation code"
+                >
+                  {copied ? <Check size={18} className="text-forest-500" /> : <Copy size={18} className="text-stone-400" />}
+                </button>
+              </div>
+              {copied && <p className="text-xs text-forest-600 mt-2">Copied to clipboard!</p>}
+            </div>
+          </div>
+        )}
 
         {/* Subscription details card */}
         <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden mb-6">
@@ -131,6 +199,14 @@ export default function SubscriptionSuccess() {
             <div className="flex justify-between text-sm">
               <span className="text-stone-500">Next billing date</span>
               <span className="font-700 text-stone-900">{formattedEnd}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-stone-500">Payment method</span>
+              <span className="font-700 text-stone-900">Paid with Google Pay</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-stone-500">Date</span>
+              <span className="font-700 text-stone-900">{formatTransactionDateTime()}</span>
             </div>
             <div className="pt-2 border-t border-stone-100 space-y-1.5">
               {(PLAN_FEATURES[planId] || PLAN_FEATURES.pro).map((f, i) => (
