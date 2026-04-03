@@ -26,10 +26,22 @@ export default function ResetPassword() {
         await signOut()
       }
 
-      const accessToken = searchParams.get('access_token')
-      const refreshToken = searchParams.get('refresh_token')
+      // Supabase may send tokens in URL params OR in hash fragment
+      // Check both locations
+      let accessToken = searchParams.get('access_token')
+      let refreshToken = searchParams.get('refresh_token')
+
+      // If not in params, check hash fragment (Supabase sometimes uses this format)
+      if (!accessToken || !refreshToken) {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1))
+        accessToken = hashParams.get('access_token') || searchParams.get('access_token')
+        refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token')
+      }
+
+      console.log('[ResetPassword] Checking tokens. Hash:', window.location.hash.substring(1).slice(0, 50), '...')
 
       if (!accessToken || !refreshToken) {
+        console.warn('[ResetPassword] Missing tokens in URL. accessToken:', !!accessToken, 'refreshToken:', !!refreshToken)
         setError('Invalid reset link. Please request a new password reset.')
         setLoading(false)
         return
