@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Send, Search, Package, MapPin, CheckCheck, MessageSquare, Navigation, ArrowLeft } from 'lucide-react'
+import { Send, Search, Package, MapPin, CheckCheck, MessageSquare, Navigation, ArrowLeft, Loader } from 'lucide-react'
 
 const QUICK_REPLIES = [
   'When can you pick up?',
@@ -363,7 +363,11 @@ export default function Messages() {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-stone-400 text-sm">
-            {loading ? 'Loading...' : 'Select a conversation or accept a load to start messaging'}
+            {loading ? (
+              <div className="flex items-center gap-2">
+                <Loader size={14} className="animate-spin" /> Loading...
+              </div>
+            ) : 'Select a conversation or accept a load to start messaging'}
           </div>
         )}
       </div>

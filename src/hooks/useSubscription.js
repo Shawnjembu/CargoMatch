@@ -22,7 +22,7 @@ export function useSubscription(carrierId) {
       .eq('carrier_id', carrierId)
       .maybeSingle()
 
-    if (error) { console.error('useSubscription fetch error:', error); setLoading(false); return }
+    if (error) { if (import.meta.env.DEV) console.error('useSubscription fetch error:', error); setLoading(false); return }
     if (!data)  { setLoading(false); return }
 
     const now = new Date()
@@ -85,11 +85,11 @@ export function useSubscription(carrierId) {
     // Check for valid session before calling function
     const { data: sessionData } = await supabase.auth.getSession()
     if (!sessionData.session) {
-      console.error('[upgradeSubscription] No valid session found')
+      if (import.meta.env.DEV) console.error('[upgradeSubscription] No valid session found')
       return { error: 'Authentication required. Please sign in again.' }
     }
 
-    console.log('[upgradeSubscription] Calling activate-subscription for plan:', newTier)
+    if (import.meta.env.DEV) console.log('[upgradeSubscription] Calling activate-subscription for plan:', newTier)
     
     const { data, error } = await supabase.functions.invoke('activate-subscription', {
       body: {
@@ -100,16 +100,16 @@ export function useSubscription(carrierId) {
     })
 
     if (error) {
-      console.error('[upgradeSubscription] Function error:', error)
+      if (import.meta.env.DEV) console.error('[upgradeSubscription] Function error:', error)
       return { error: data?.error ?? error?.message ?? 'Activation failed' }
     }
 
     if (!data?.success) {
-      console.error('[upgradeSubscription] Function returned failure:', data)
+      if (import.meta.env.DEV) console.error('[upgradeSubscription] Function returned failure:', data)
       return { error: data?.error ?? 'Activation failed' }
     }
 
-    console.log('[upgradeSubscription] Success:', data)
+    if (import.meta.env.DEV) console.log('[upgradeSubscription] Success:', data)
     // Refresh local subscription state after server activation
     await fetchSubscription()
     return { data }

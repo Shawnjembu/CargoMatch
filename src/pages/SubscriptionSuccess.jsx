@@ -43,6 +43,7 @@ export default function SubscriptionSuccess() {
   const [checkAnim,  setCheckAnim]  = useState(false)
   const [confirmationCode, setConfirmationCode] = useState('')
   const [copied, setCopied] = useState(false)
+  const [userInteracted, setUserInteracted] = useState(false)
 
   // Query params — used for mock preview and real flow alike
   const planId    = params.get('plan')  || 'pro'
@@ -86,8 +87,10 @@ export default function SubscriptionSuccess() {
     return () => clearTimeout(t)
   }, [urlCode])
 
-  // Countdown + auto-redirect
+  // Countdown + auto-redirect (only if user hasn't clicked a button)
   useEffect(() => {
+    if (userInteracted) return // Skip redirect if user clicked a button
+    
     const interval = setInterval(() => {
       setCountdown(n => {
         if (n <= 1) {
@@ -99,7 +102,7 @@ export default function SubscriptionSuccess() {
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [])
+  }, [userInteracted, navigate])
 
   // Subscription end date — real from DB or +30 days from now (mock)
   const subEnd = subscription?.subscription_end
@@ -117,7 +120,7 @@ export default function SubscriptionSuccess() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.error('Failed to copy:', err)
+      if (import.meta.env.DEV) console.error('Failed to copy:', err)
     }
   }
 
@@ -227,23 +230,32 @@ export default function SubscriptionSuccess() {
         {/* Action buttons */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <button
-            onClick={() => navigate('/carrier')}
+            onClick={() => { setUserInteracted(true); navigate('/carrier'); }}
             className="flex-1 flex items-center justify-center gap-2 bg-forest-500 hover:bg-forest-600 text-white font-medium text-sm px-6 py-3 rounded-xl transition-all"
           >
             Go to Dashboard <ArrowRight size={14} />
           </button>
-          <Link
-            to="/carrier/subscription"
+          <button
+            onClick={() => { setUserInteracted(true); }}
             className="flex-1 flex items-center justify-center gap-2 border border-stone-200 text-stone-600 hover:bg-stone-50 font-medium text-sm px-6 py-3 rounded-xl transition-all"
           >
-            View subscription
-          </Link>
+            Stay on this page
+          </button>
         </div>
 
-        {/* Countdown */}
-        <p className="text-center text-xs text-stone-400">
-          Redirecting to your dashboard in <strong>{countdown}s</strong>…
-        </p>
+        {/* Countdown - hide after user interaction */}
+        {!userInteracted && (
+          <p className="text-center text-xs text-stone-400">
+            Auto-redirect in <strong>{countdown}s</strong>. Click "Stay on this page" to remain here.
+          </p>
+        )}
+        {userInteracted && (
+          <p className="text-center text-xs text-stone-400">
+            <Link to="/carrier/subscription" className="text-forest-600 hover:text-forest-700 font-medium">
+              View subscription details
+            </Link>
+          </p>
+        )}
 
       </div>
     </div>

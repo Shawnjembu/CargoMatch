@@ -4,18 +4,33 @@ import { X, Truck, Mail, Lock, User, Phone, AlertCircle, CheckCircle, Eye, EyeOf
 import { useAuth } from '../context/AuthContext'
 
 export default function AuthModal({ onClose, defaultMode = 'signin' }) {
-  const { signIn, signUp, resetPassword } = useAuth()
+  const { signIn, signUp, resetPassword, resendVerification } = useAuth()
   const navigate = useNavigate()
   const [mode,    setMode]    = useState(defaultMode)
   const [error,   setError]   = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPw, setShowPw] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
   const [form, setForm] = useState({
     email: '', password: '', full_name: '', phone: '', role: 'shipper'
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleResendVerification = async () => {
+    if (!form.email) { setError('Enter your email address first.'); return }
+    setResendLoading(true)
+    setError('')
+    try {
+      await resendVerification(form.email)
+      setSuccess('Verification email sent! Check your inbox.')
+    } catch (e) {
+      setError(e.message || 'Failed to resend verification email.')
+    } finally {
+      setResendLoading(false)
+    }
+  }
 
   const handleSubmit = async () => {
     setError(''); setSuccess('')
@@ -104,6 +119,15 @@ export default function AuthModal({ onClose, defaultMode = 'signin' }) {
 
         {error   && <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-xl mb-4"><AlertCircle size={15} className="flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
         {success && <div className="flex items-center gap-2 bg-forest-50 border border-forest-200 text-forest-700 text-sm px-4 py-3 rounded-xl mb-4"><CheckCircle size={15} />{success}</div>}
+
+        {error.includes('confirm your email') && (
+          <p className="text-center text-sm text-stone-500 mt-2 mb-4">
+            <button onClick={handleResendVerification} disabled={resendLoading}
+              className="text-forest-600 font-medium hover:text-forest-700 disabled:opacity-50">
+              {resendLoading ? 'Sending...' : 'Resend verification email'}
+            </button>
+          </p>
+        )}
 
         <div className="space-y-3">
           {mode === 'signup' && (

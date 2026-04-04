@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import AuthModal from '../components/AuthModal'
 import {
   Truck, Package, MapPin, Shield, BarChart2, Globe,
-  CheckCircle, ArrowRight
+  CheckCircle, ArrowRight, TrendingDown, Users, Gauge, DollarSign
 } from 'lucide-react'
 
 // ── helpers ──────────────────────────────────────────────────
@@ -131,17 +131,16 @@ export default function Landing() {
       <NavBar onCTA={() => handleCTA('signup')} onSignIn={() => handleCTA('signin')} />
 
       {/* ── HERO ─────────────────────────────────────────────── */}
-      <section className="pt-32 pb-24 px-6 bg-gradient-to-br from-forest-50 via-white to-sand-50">
+      <section className="pt-32 pb-16 px-6 bg-gradient-to-br from-forest-50 via-white to-sand-50">
         <div className="max-w-4xl mx-auto text-center">
           <span className="inline-block px-3 py-1 bg-forest-100 text-forest-700 text-xs font-semibold rounded-full mb-6 tracking-wide uppercase">
             Built for Botswana &amp; SADC
           </span>
-          <h1 className="font-display font-800 text-5xl sm:text-6xl text-stone-900 leading-tight mb-6">
-            Move Cargo Smarter<br className="hidden sm:block" /> Across Botswana
+          <h1 className="font-display font-800 text-4xl sm:text-5xl lg:text-6xl text-stone-900 leading-tight mb-6">
+            Cut Transport Costs with<br className="hidden sm:block" /> Shared Loads Across SADC
           </h1>
           <p className="text-lg text-stone-500 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Connect with verified carriers, post loads in minutes, and track every
-            shipment in real time — all in one platform built for the SADC region.
+            Share transport space, get competitive bids from trusted carriers, and move your goods faster — even with rising fuel prices.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
@@ -156,6 +155,85 @@ export default function Landing() {
             >
               Join as a Carrier
             </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── VALUE STRIP ─────────────────────────────────────────── */}
+      <section className="bg-forest-600 py-8 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-forest-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <TrendingDown size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="font-semibold text-white text-sm">Save on Rising Fuel Costs</p>
+                <p className="text-forest-100 text-xs mt-1">Share loads and reduce your per-kilometer expenses.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-forest-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Users size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="font-semibold text-white text-sm">Share Unused Truck Space</p>
+                <p className="text-forest-100 text-xs mt-1">Carriers fill empty space, shippers save money.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-forest-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Gauge size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="font-semibold text-white text-sm">Competitive Carrier Bids</p>
+                <p className="text-forest-100 text-xs mt-1">Get multiple quotes and choose the best rate.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-forest-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <MapPin size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="font-semibold text-white text-sm">Real-time Tracking</p>
+                <p className="text-forest-100 text-xs mt-1">Know exactly where your cargo is, any time.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── WHAT IS LOAD SHARING ────────────────────────────────── */}
+      <section className="py-20 px-6 bg-white">
+        <div className="max-w-3xl mx-auto text-center">
+          <h2 className="font-display font-800 text-2xl sm:text-3xl text-stone-900 mb-4">
+            What is Load Sharing?
+          </h2>
+          <p className="text-stone-500 text-base mb-8 leading-relaxed">
+            Load sharing means combining multiple smaller shipments into one truck journey. Instead of paying for an entire truck when you only have a small load, you share the space — and the cost — with other businesses sending goods in the same direction.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-6 text-left">
+            <div className="bg-stone-50 rounded-xl p-5">
+              <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center mb-3">
+                <DollarSign size={20} className="text-amber-600" />
+              </div>
+              <h3 className="font-semibold text-stone-800 mb-2">Lower Costs</h3>
+              <p className="text-sm text-stone-500">Pay only for the space you use, not the whole truck.</p>
+            </div>
+            <div className="bg-stone-50 rounded-xl p-5">
+              <div className="w-10 h-10 bg-forest-100 rounded-lg flex items-center justify-center mb-3">
+                <Truck size={20} className="text-forest-600" />
+              </div>
+              <h3 className="font-semibold text-stone-800 mb-2">Better Use of Trucks</h3>
+              <p className="text-sm text-stone-500">Carriers fill empty space and maximize every trip.</p>
+            </div>
+            <div className="bg-stone-50 rounded-xl p-5">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mb-3">
+                <Package size={20} className="text-blue-600" />
+              </div>
+              <h3 className="font-semibold text-stone-800 mb-2">Faster Deliveries</h3>
+              <p className="text-sm text-stone-500">Shared loads mean more trucks on the road, quicker pickup.</p>
+            </div>
           </div>
         </div>
       </section>

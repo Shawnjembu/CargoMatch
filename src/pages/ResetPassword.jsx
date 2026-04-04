@@ -26,22 +26,40 @@ export default function ResetPassword() {
         await signOut()
       }
 
-      // Supabase may send tokens in URL params OR in hash fragment
-      // Check both locations
+      // Check for PKCE code parameter (Supabase default flow)
+      const code = searchParams.get('code')
+      
+      if (code) {
+        // PKCE flow: exchange code for session
+        if (import.meta.env.DEV) console.log('[ResetPassword] Found code parameter, exchanging for session...')
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+        
+        if (exchangeError) {
+          if (import.meta.env.DEV) console.error('[ResetPassword] Code exchange failed:', exchangeError.message)
+          setError('This reset link is invalid or has expired. Please request a new one.')
+        } else {
+          if (import.meta.env.DEV) console.log('[ResetPassword] Code exchanged successfully')
+          setSessionReady(true)
+        }
+        setLoading(false)
+        return
+      }
+
+      // Legacy token-based flow (hash fragment or query params)
       let accessToken = searchParams.get('access_token')
       let refreshToken = searchParams.get('refresh_token')
 
-      // If not in params, check hash fragment (Supabase sometimes uses this format)
+      // Check hash fragment for tokens
       if (!accessToken || !refreshToken) {
         const hashParams = new URLSearchParams(window.location.hash.substring(1))
         accessToken = hashParams.get('access_token') || searchParams.get('access_token')
         refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token')
       }
 
-      console.log('[ResetPassword] Checking tokens. Hash:', window.location.hash.substring(1).slice(0, 50), '...')
+      if (import.meta.env.DEV) console.log('[ResetPassword] Checking tokens. Hash:', window.location.hash.substring(1).slice(0, 50), '...')
 
       if (!accessToken || !refreshToken) {
-        console.warn('[ResetPassword] Missing tokens in URL. accessToken:', !!accessToken, 'refreshToken:', !!refreshToken)
+        if (import.meta.env.DEV) console.warn('[ResetPassword] Missing tokens in URL. accessToken:', !!accessToken, 'refreshToken:', !!refreshToken)
         setError('Invalid reset link. Please request a new password reset.')
         setLoading(false)
         return

@@ -16,12 +16,14 @@ import NotFound                from './pages/NotFound'
 import Invoice                 from './pages/Invoice'
 import CarrierSubscription     from './pages/CarrierSubscription'
 import SubscriptionSuccess     from './pages/SubscriptionSuccess'
+import SubscriptionHistory     from './pages/SubscriptionHistory'
 import ResetPassword            from './pages/ResetPassword'
+import PageLoader              from './components/PageLoader'
 
 // Redirect logged-in users away from the landing page to their dashboard
 function HomeRoute() {
   const { user, profile, loading } = useAuth()
-  if (loading) return <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400">Loading...</div>
+  if (loading) return <PageLoader />
   if (!user) return <Landing />
   if (profile?.is_admin)           return <Navigate to="/admin"   replace />
   if (profile?.role === 'carrier') return <Navigate to="/carrier" replace />
@@ -30,7 +32,7 @@ function HomeRoute() {
 
 function RoleRoute({ children, role }) {
   const { user, profile, loading } = useAuth()
-  if (loading) return <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400">Loading...</div>
+  if (loading) return <PageLoader />
   if (!user) return <Navigate to="/" replace />
   if (profile && profile.onboarded === false) return <Navigate to="/onboarding" replace />
   if (role && profile?.role !== role && profile?.role !== 'both') return <Navigate to="/" replace />
@@ -39,7 +41,7 @@ function RoleRoute({ children, role }) {
 
 function AdminRoute({ children }) {
   const { user, profile, loading } = useAuth()
-  if (loading) return <div className="min-h-screen bg-cream flex items-center justify-center text-stone-400">Loading...</div>
+  if (loading) return <PageLoader />
   if (!user || !profile?.is_admin) return <Navigate to="/" replace />
   return children
 }
@@ -65,6 +67,7 @@ export default function App() {
         {/* carrier/subscription must come BEFORE carrier/:id to avoid id="subscription" match */}
         <Route path="/carrier/subscription"            element={<RoleRoute><CarrierSubscription /></RoleRoute>} />
         <Route path="/carrier/subscription/success"    element={<RoleRoute><SubscriptionSuccess /></RoleRoute>} />
+        <Route path="/carrier/subscription/history"     element={<RoleRoute><SubscriptionHistory /></RoleRoute>} />
         <Route path="/reset-password"                 element={<ResetPassword />} />
         <Route path="*"                                element={<NotFound />} />
       </Routes>

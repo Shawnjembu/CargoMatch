@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import ErrorDisplay from '../components/ErrorDisplay'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Truck, MapPin, ArrowRight, RefreshCw } from 'lucide-react'
+import { Truck, MapPin, ArrowRight, RefreshCw, Loader, AlertCircle } from 'lucide-react'
 
 const CITIES = {
   'Gaborone':        { lat: -24.6282, lng: 25.9231 },
@@ -66,6 +67,8 @@ export default function MapView() {
   const [selected,  setSelected]  = useState(null)
   const [mapReady,  setMapReady]  = useState(false)
   const [loading,   setLoading]   = useState(true)
+  const [mapError,  setMapError]  = useState(null)
+  const [fetchError, setFetchError] = useState(null)
 
   useEffect(() => {
     fetchShipments()
@@ -73,26 +76,42 @@ export default function MapView() {
   }, [])
 
   const fetchShipments = async () => {
-    const isCarrier = profile?.role === 'carrier' || profile?.role === 'both'
-    const isShipper = profile?.role === 'shipper' || profile?.role === 'both'
+    try {
+      const isCarrier = profile?.role === 'carrier' || profile?.role === 'both'
+      const isShipper = profile?.role === 'shipper' || profile?.role === 'both'
 
-    let query = supabase
-      .from('shipments')
-      .select('*, loads(from_location, to_location, cargo_type, weight_kg), carriers(company_name)')
-      .in('status', ['confirmed', 'picked_up', 'in_transit'])
+      let query = supabase
+        .from('shipments')
+        .select('*, loads(from_location, to_location, cargo_type, weight_kg), carriers(company_name)')
+        .in('status', ['confirmed', 'picked_up', 'in_transit'])
 
-    if (isShipper && !isCarrier) query = query.eq('shipper_id', user.id)
+      if (isShipper && !isCarrier) query = query.eq('shipper_id', user.id)
 
-    const { data } = await query.limit(20)
-    setShipments(data || [])
-    setLoading(false)
+      const { data, error } = await query.limit(20)
+
+      if (error) {
+        if (import.meta.env.DEV) console.error('[MapView] Fetch error:', error)
+        setFetchError('Failed to load shipments. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      setShipments(data || [])
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('[MapView] Fetch error:', err)
+      setFetchError('Failed to load shipments. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const initMap = () => {
-    if (leafletMap.current || !mapRef.current) return
-    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
-      if (!mapRef.current || leafletMap.current) return
-      const map = new gmaps.Map(mapRef.current, {
+    if (leafletMap.current || !mapRef.current || mapError) return
+    import('../lib/googleMaps')
+      .then(({ loadGoogleMaps }) => loadGoogleMaps())
+      .then((gmaps) => {
+        if (!mapRef.current || leafletMap.current) return
+        const map = new gmaps.Map(mapRef.current, {
         center: { lat: -23.0, lng: 25.5 },
         zoom: 6,
         mapTypeId: 'roadmap',
@@ -113,7 +132,10 @@ export default function MapView() {
       })
       leafletMap.current = map
       setMapReady(true)
-    }).catch(console.error)
+    }).catch(err => { 
+      if (import.meta.env.DEV) console.error('Map init error:', err) 
+      setMapError('Unable to load the map. Please try refreshing.')
+    })
   }
 
   // Render shipment markers when map + data are ready
@@ -178,11 +200,35 @@ export default function MapView() {
           </button>
         </div>
 
+        {fetchError && (
+          <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <p className="text-rose-700 text-sm">{fetchError}</p>
+              <button onClick={() => { setFetchError(null); fetchShipments(); }} className="text-rose-600 font-medium text-sm hover:text-rose-800">
+                Try Again
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-4 gap-4">
           {/* Map */}
           <div className="lg:col-span-3">
             <div className="bg-white rounded-2xl border border-stone-100 overflow-hidden shadow-sm">
-              <div ref={mapRef} style={{ height: '560px', width: '100%' }} />
+              {mapError ? (
+                <div className="h-[560px] flex flex-col items-center justify-center text-center px-4">
+                  <AlertCircle size={40} className="text-rose-400 mb-3" />
+                  <p className="text-stone-600 text-sm mb-3">{mapError}</p>
+                  <button 
+                    onClick={() => { setMapError(null); leafletMap.current = null; initMap(); }}
+                    className="text-forest-600 font-medium text-sm hover:text-forest-700"
+                  >
+                    Retry loading map
+                  </button>
+                </div>
+              ) : (
+                <div ref={mapRef} style={{ height: '560px', width: '100%' }} />
+              )}
             </div>
           </div>
 
@@ -216,7 +262,9 @@ export default function MapView() {
             <p className="text-xs font-medium text-stone-500 uppercase tracking-wider px-1">Active Shipments</p>
 
             {loading ? (
-              <div className="text-xs text-stone-400 px-1">Loading...</div>
+              <div className="flex items-center gap-2 text-xs text-stone-400 px-1">
+                <Loader size={12} className="animate-spin" /> Loading...
+              </div>
             ) : shipments.length === 0 ? (
               <div className="bg-white rounded-2xl border border-stone-100 p-4 text-center">
                 <Truck size={24} className="text-stone-300 mx-auto mb-2" />

@@ -147,6 +147,7 @@ export default function CarrierSubscription() {
   const [paying,       setPaying]       = useState(false)
   const [payError,     setPayError]     = useState(null)
   const [success,      setSuccess]      = useState(null)   // plan name on success
+  const [failed,       setFailed]       = useState(false)  // payment failure state
   const [compareOpen,  setCompareOpen]  = useState(false)
   const gpayBtnRef = useRef(null)
 
@@ -231,10 +232,10 @@ export default function CarrierSubscription() {
       navigate(`/carrier/subscription/success?plan=${plan.id}&price=${plan.price}&name=${encodeURIComponent(plan.name)}&code=${encodeURIComponent(confirmCode)}`)
     } catch (err) {
       if (err.statusCode === 'CANCELED') {
-        // User closed the sheet — silent
         setSelectedPlan(null)
       } else {
         setPayError('Payment failed. Please try again.')
+        setFailed(true)
       }
     } finally {
       setPaying(false)
@@ -284,7 +285,32 @@ export default function CarrierSubscription() {
           <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 mb-6 text-sm">
             <AlertCircle size={16} className="flex-shrink-0" />
             <span className="flex-1">{payError}</span>
-            <button onClick={() => setPayError(null)} className="text-rose-500 hover:text-rose-700"><X size={14} /></button>
+            <button onClick={() => { setPayError(null); setFailed(false); }} className="text-rose-500 hover:text-rose-700"><X size={14} /></button>
+          </div>
+        )}
+
+        {/* Payment failure UI */}
+        {failed && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 mb-6 text-center">
+            <XCircle size={48} className="text-rose-500 mx-auto mb-4" />
+            <h3 className="font-display text-xl font-700 text-stone-900 mb-2">Payment Failed</h3>
+            <p className="text-stone-600 text-sm mb-6">
+              Your payment could not be processed. Please check your payment method and try again.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => { setFailed(false); setPayError(null); }}
+                className="px-6 py-2.5 bg-forest-500 hover:bg-forest-600 text-white font-medium rounded-xl transition-colors"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => { setFailed(false); setSelectedPlan(null); }}
+                className="px-6 py-2.5 border border-stone-200 hover:border-stone-300 text-stone-600 font-medium rounded-xl transition-colors"
+              >
+                Choose Different Plan
+              </button>
+            </div>
           </div>
         )}
 

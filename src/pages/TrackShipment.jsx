@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
+import DisputeModal from '../components/DisputeModal'
+import ErrorDisplay from '../components/ErrorDisplay'
 import { supabase } from '../lib/supabase'
-import { ArrowRight, MessageSquare, CheckCircle, ChevronLeft, Navigation, AlertCircle } from 'lucide-react'
+import { ArrowRight, MessageSquare, CheckCircle, ChevronLeft, Navigation, AlertCircle, AlertTriangle, Loader } from 'lucide-react'
 
 const CITIES = {
   'Gaborone':        { lat: -24.6282, lng: 25.9231 },
@@ -64,6 +66,8 @@ export default function TrackShipment() {
   const [liveCoord,    setLiveCoord]    = useState(null)  // { lat, lng } from GPS
   const [loading,      setLoading]      = useState(true)
   const [lastSeen,     setLastSeen]     = useState(null)
+  const [showDispute,  setShowDispute]  = useState(false)
+  const [mapError,     setMapError]     = useState(null)
   const mapRef      = useRef(null)
   const leafletMap  = useRef(null)
   const truckMarker = useRef(null)
@@ -115,19 +119,32 @@ export default function TrackShipment() {
   }
 
   const fetchShipment = async () => {
-    const { data } = await supabase
-      .from('shipments')
-      .select(`*, loads(*), carriers(company_name, trucks(*))`)
-      .eq('reference', shipmentId)
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .select(`*, loads(*), carriers(user_id, company_name, trucks(*))`)
+        .eq('reference', shipmentId)
+        .single()
 
-    if (data) {
-      setShipment(data)
-      setLiveProgress(data.progress_pct || 0)
-    } else {
+      if (error) {
+        if (import.meta.env.DEV) console.error('[TrackShipment] Fetch error:', error)
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+
+      if (data) {
+        setShipment(data)
+        setLiveProgress(data.progress_pct || 0)
+      } else {
+        setNotFound(true)
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('[TrackShipment] Fetch error:', err)
       setNotFound(true)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const fromLoc = shipment?.loads?.from_location || shipment?.from_location
@@ -140,10 +157,12 @@ export default function TrackShipment() {
 
   // Init Google Maps
   useEffect(() => {
-    if (leafletMap.current || loading) return
-    import('../lib/googleMaps').then(({ loadGoogleMaps }) => loadGoogleMaps()).then((gmaps) => {
-      if (!mapRef.current || leafletMap.current) return
-      const map = new gmaps.Map(mapRef.current, {
+    if (leafletMap.current || loading || notFound || mapError) return
+    import('../lib/googleMaps')
+      .then(({ loadGoogleMaps }) => loadGoogleMaps())
+      .then((gmaps) => {
+        if (!mapRef.current || leafletMap.current) return
+        const map = new gmaps.Map(mapRef.current, {
         center: { lat: truckPos.lat, lng: truckPos.lng },
         zoom: 7,
         mapTypeId: 'roadmap',
@@ -187,9 +206,12 @@ export default function TrackShipment() {
 
       leafletMap.current = map
       setMapReady(true)
-    }).catch(console.error)
+    }).catch(err => { 
+      if (import.meta.env.DEV) console.error('Google Maps init error:', err) 
+      setMapError('Unable to load the map. Please try refreshing the page.')
+    })
     return () => { leafletMap.current = null }
-  }, [loading])
+  }, [loading, notFound, mapError])
 
   // Move marker when real GPS coord arrives
   useEffect(() => {
@@ -274,7 +296,20 @@ export default function TrackShipment() {
                 )}
               </div>
               {loading ? (
-                <div className="h-96 flex items-center justify-center text-stone-400 text-sm">Loading map...</div>
+                <div className="h-96 flex flex-col items-center justify-center text-stone-400 text-sm">
+                  <Loader size={24} className="animate-spin mb-2" /> Loading map...
+                </div>
+              ) : mapError ? (
+                <div className="h-96 flex flex-col items-center justify-center text-center px-4">
+                  <AlertTriangle size={32} className="text-rose-400 mb-3" />
+                  <p className="text-stone-600 text-sm mb-3">{mapError}</p>
+                  <button 
+                    onClick={() => { setMapError(null); setMapReady(false); leafletMap.current = null; }}
+                    className="text-forest-600 font-medium text-sm hover:text-forest-700"
+                  >
+                    Retry loading map
+                  </button>
+                </div>
               ) : isDelivered ? (
                 <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
                   <div className="w-20 h-20 bg-forest-100 rounded-full flex items-center justify-center mb-5">
@@ -336,10 +371,16 @@ export default function TrackShipment() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 pt-4 border-t border-stone-100">
+              <div className="mt-4 pt-4 border-t border-stone-100 space-y-2">
                 <Link to="/messages" className="w-full flex items-center justify-center gap-2 bg-forest-50 hover:bg-forest-100 text-forest-700 font-medium text-sm py-2.5 rounded-xl transition-colors border border-forest-200">
                   <MessageSquare size={14} /> Message Carrier
                 </Link>
+                <button
+                  onClick={() => setShowDispute(true)}
+                  className="w-full flex items-center justify-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-700 font-medium text-sm py-2.5 rounded-xl transition-colors border border-amber-200"
+                >
+                  <AlertTriangle size={14} /> Raise Dispute
+                </button>
               </div>
             </div>
 
@@ -363,6 +404,16 @@ export default function TrackShipment() {
             </div>
           </div>
         </div>
+
+        {showDispute && shipment && (
+          <DisputeModal
+            shipmentId={shipment.id}
+            shipmentRef={shipment.reference || shipmentId}
+            otherPartyId={shipment.carrier_user_id}
+            onClose={() => setShowDispute(false)}
+            onDisputeRaised={() => {}}
+          />
+        )}
       </div>
     </div>
   )

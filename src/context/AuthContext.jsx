@@ -107,8 +107,26 @@ export function AuthProvider({ children }) {
     return { success: true }
   }
 
+  // ── Resend verification email ────────────────────────────────────
+  const resendVerification = async (email) => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        redirectTo: 'https://cargo-match-gold.vercel.app/',
+      }
+    })
+    if (error) throw error
+    return { success: true }
+  }
+
+  // Check if user email is verified
+  const isEmailVerified = () => {
+    return user?.email_confirmed_at != null && user.email_confirmed_at !== ''
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword, updatePassword }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, resetPassword, updatePassword, resendVerification, isEmailVerified }}>
       {children}
     </AuthContext.Provider>
   )
